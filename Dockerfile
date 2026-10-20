@@ -30,12 +30,14 @@ WORKDIR /app
 # 마운트 디렉터리를 chown 하고 build-arg 로도 같은 값을 넘긴다.
 ARG APP_UID=1000
 ARG APP_GID=1000
-RUN addgroup -g ${APP_GID} porest \
-    && adduser -u ${APP_UID} -G porest -D -H -h /app porest
+# 컨테이너 사용자 이름. 옛 스택은 porest, 새 스택(Jenkinsfile.groo)은 groo.
+ARG APP_USER=porest
+RUN addgroup -g ${APP_GID} ${APP_USER} \
+    && adduser -u ${APP_UID} -G ${APP_USER} -D -H -h /app ${APP_USER}
 
-COPY --from=builder --chown=porest:porest /app/build/libs/*.jar app.jar
+COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/build/libs/*.jar app.jar
 
-USER porest
+USER ${APP_USER}
 
 EXPOSE 8002
 

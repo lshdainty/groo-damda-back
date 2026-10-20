@@ -120,7 +120,8 @@ public final class UserAgentParser {
      */
     private static String client(String ua) {
         // 앱이 보내는 형태가 먼저다 — "Porest/1.2.3 (Android 14)".
-        if (ua.contains("porest/")) return "그루 담다 앱";
+        // 옛 앱은 "Porest/", 새 앱은 "Groo/" 로 보낸다 — 둘 다 읽는다.
+        if (ua.contains("porest/") || ua.contains("groo/")) return "그루 담다 앱";
         // 앱이 UA 를 안 보내던 시절의 dart:io 기본값. 옛 세션이 남아 있어 계속 본다.
         if (ua.contains("dart/") || ua.contains("dart:io")) return "그루 담다 앱";
         if (ua.contains("edg/") || ua.contains("edge/")) return "Edge";

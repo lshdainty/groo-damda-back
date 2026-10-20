@@ -1,6 +1,7 @@
 package io.groo.damda.common.config;
 
 import io.groo.damda.common.event.SsoSessionEventSubscriber;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,11 +25,11 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 @ConditionalOnProperty(name = "app.session-events.enabled", havingValue = "true", matchIfMissing = true)
 public class RedisSessionEventConfig {
 
-    private static final String SESSION_EVENT_CHANNEL = "porest:sso:session-events";
-
     @Bean
-    public ChannelTopic sessionEventTopic() {
-        return new ChannelTopic(SESSION_EVENT_CHANNEL);
+    public ChannelTopic sessionEventTopic(
+            // 기본값은 옛 이름이고, 새 스택은 SSO_SESSION_EVENTS_CHANNEL 로 바꾼다(발행 쪽 sso 와 같아야 한다)
+            @Value("${app.redis.channels.session-events:porest:sso:session-events}") String channel) {
+        return new ChannelTopic(channel);
     }
 
     @Bean

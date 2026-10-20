@@ -20,7 +20,7 @@
                 <url>${LOKI_URL:-http://loki:3100/loki/api/v1/push}</url>
             </http>
             <labels>
-                app = porest-desk
+                app = ${APP_NAME:-porest-desk}
                 host = ${HOSTNAME}
                 level = %level
                 env = ${SPRING_PROFILES_ACTIVE:-local}
