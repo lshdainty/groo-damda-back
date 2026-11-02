@@ -1,4 +1,4 @@
-# porest-desk-back — 작업 규칙
+# groo-damda-back — 작업 규칙
 
 > **워크스페이스 공통 규칙**(Git 작업 격리 · 스테이징 범위 · 태그·릴리스)은
 > 상위 `/home/lshdainty/study/CLAUDE.md` 에 있다. Claude Code 가 디렉토리 워크업으로
@@ -7,7 +7,7 @@
 ## 이 레포는
 
 그루 담다 의 Spring Boot 백엔드. 할 일·캘린더·가계부·자산·카드·구독·더치페이·토스증권 연동을
-`/api/v1` REST API 로 제공하고, SSO(porest-sso-back) 토큰을 desk 토큰으로 교환해 인증한다.
+`/api/v1` REST API 로 제공하고, SSO(groo-sso-back) 토큰을 desk 토큰으로 교환해 인증한다.
 Java 25 / **Spring Boot 4.0.4** / JPA(Hibernate 7) + QueryDSL 7.1 / MariaDB(운영)·H2(테스트) / Redis.
 공통 라이브러리 `io.groo:groo-core:3.0.0` 을 **GitHub Packages(private)** 에서 받는다.
 
@@ -88,6 +88,6 @@ export GITHUB_ACTOR=lshdainty GITHUB_TOKEN=$(cat ~/gitkey) # groo-core 를 GitHu
 
 ## 짝 레포 — 동기화 장치가 없다
 
-`groo-core`(ApiResponse·예외·UserClock·YNType 출처) · `porest-desk-front` · `porest-desk-app`(Flutter) ·
-`porest-sso-back`. 코드젠도 공유 타입도 없어 컨트롤러 DTO 를 바꿔도 이 레포 안에서는 경고가 안 뜬다.
+`groo-core`(ApiResponse·예외·UserClock·YNType 출처) · `groo-damda-front` · `groo-damda-app`(Flutter) ·
+`groo-sso-back`. 코드젠도 공유 타입도 없어 컨트롤러 DTO 를 바꿔도 이 레포 안에서는 경고가 안 뜬다.
 API 스키마를 바꾸면 front/app 을, core 응답 포맷을 바꾸면 버전 범프를 손으로 챙겨라.
