@@ -160,11 +160,11 @@ SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 | Repository | Description |
 |------------|-------------|
 | [그루](https://github.com/lshdainty/groo) | 통합 레포지토리 (서비스 소개) |
-| [porest-desk-front](https://github.com/lshdainty/porest-desk-front) | Desk 프론트엔드 |
-| [porest-desk-app](https://github.com/lshdainty/porest-desk-app) | Desk 모바일 앱 (Flutter) |
+| [porest-desk-front](https://github.com/lshdainty/groo-damda-front) | Desk 프론트엔드 |
+| [porest-desk-app](https://github.com/lshdainty/groo-damda-app) | Desk 모바일 앱 (Flutter) |
 | [groo-core](https://github.com/lshdainty/groo-core) | 공통 라이브러리 |
-| [porest-sso-back](https://github.com/lshdainty/porest-sso-back) | SSO 백엔드 |
-| [porest-sso-front](https://github.com/lshdainty/porest-sso-front) | SSO 프론트엔드 |
+| [porest-sso-back](https://github.com/lshdainty/groo-sso-back) | SSO 백엔드 |
+| [porest-sso-front](https://github.com/lshdainty/groo-sso-front) | SSO 프론트엔드 |
 
 ---
 
