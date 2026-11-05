@@ -92,7 +92,9 @@ class SubscriptionApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.planCode").value("SECURITIES"))
                 .andExpect(jsonPath("$.data.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.data.autoRenew").value(true));
+                .andExpect(jsonPath("$.data.autoRenew").value(true))
+                .andExpect(jsonPath("$.data.price").value(9900))
+                .andExpect(jsonPath("$.data.durationMonths").value(1));
 
         verify(subscriptionService).subscribe(1L, "SECURITIES");
     }
@@ -130,7 +132,9 @@ class SubscriptionApiControllerTest {
         mockMvc.perform(get("/api/v1/subscriptions/me"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.planCode").value("SECURITIES"))
-                .andExpect(jsonPath("$.data.planName").value("증권 플랜"));
+                .andExpect(jsonPath("$.data.planName").value("증권 플랜"))
+                .andExpect(jsonPath("$.data.price").value(9900))
+                .andExpect(jsonPath("$.data.durationMonths").value(1));
 
         verify(subscriptionService).getMySubscription(1L);
     }
