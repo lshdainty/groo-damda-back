@@ -158,6 +158,50 @@ class SubscriptionServiceImplTest {
         assertThat(plans.get(0).planCode()).isEqualTo("SECURITIES");
     }
 
+    private SubscriptionPlan plan(String code, String name, int durationMonths, int price) {
+        SubscriptionPlan plan = mock(SubscriptionPlan.class);
+        org.mockito.Mockito.lenient().when(plan.getPlanCode()).thenReturn(code);
+        org.mockito.Mockito.lenient().when(plan.getPlanName()).thenReturn(name);
+        org.mockito.Mockito.lenient().when(plan.getDurationMonths()).thenReturn(durationMonths);
+        org.mockito.Mockito.lenient().when(plan.getPrice()).thenReturn(price);
+        return plan;
+    }
+
+    @Test
+    @DisplayName("활성 플랜 목록은 정렬 차례(월간 -> 연간) 그대로 price·durationMonths 를 싣는다")
+    void getActivePlans_carriesPriceInSortOrder() {
+        given(planRepository.findByIsActiveAndIsDeletedOrderBySortOrderAsc(YNType.Y, YNType.N))
+            .willReturn(List.of(
+                plan("SECURITIES", "증권 구독", 1, 9900),
+                plan("SECURITIES_YEARLY", "증권 구독(연간)", 12, 99000)));
+
+        List<SubscriptionService.PlanInfo> plans = sut.getActivePlans();
+
+        assertThat(plans).extracting(SubscriptionService.PlanInfo::planCode)
+            .containsExactly("SECURITIES", "SECURITIES_YEARLY");
+        assertThat(plans).extracting(SubscriptionService.PlanInfo::durationMonths)
+            .containsExactly(1, 12);
+        assertThat(plans).extracting(SubscriptionService.PlanInfo::price)
+            .containsExactly(9900, 99000);
+    }
+
+    @Test
+    @DisplayName("연간 코드로 구독하면 기간 12개월이고 SubscriptionInfo 가 구독한 플랜의 price·durationMonths 를 싣는다")
+    void subscribe_yearly_carriesPlanPriceAndDuration() {
+        SubscriptionPlan yearly = plan("SECURITIES_YEARLY", "증권 구독(연간)", 12, 99000);
+        given(subscriptionRepository.findEntitled(eq(USER), eq(YNType.N), any()))
+            .willReturn(List.of());
+        given(planRepository.findByPlanCodeAndIsDeleted("SECURITIES_YEARLY", YNType.N))
+            .willReturn(Optional.of(yearly));
+
+        SubscriptionService.SubscriptionInfo info = sut.subscribe(USER, "SECURITIES_YEARLY");
+
+        assertThat(info.planCode()).isEqualTo("SECURITIES_YEARLY");
+        assertThat(info.price()).isEqualTo(99000);
+        assertThat(info.durationMonths()).isEqualTo(12);
+        assertThat(info.currentPeriodEnd()).isEqualTo(info.startedAt().plusMonths(12));
+    }
+
     @Test
     @DisplayName("만료 배치: auto_renew=Y 는 기간 연장, N 은 EXPIRED")
     void processExpiry_renewVsExpire() {

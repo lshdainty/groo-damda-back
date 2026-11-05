@@ -66,7 +66,7 @@ class SubscriptionApiControllerTest {
     @DisplayName("GET /subscriptions/plans — 활성 플랜 목록 조회")
     void getPlans() throws Exception {
         given(subscriptionService.getActivePlans()).willReturn(List.of(
-                new SubscriptionService.PlanInfo("SECURITIES", "증권 플랜", 1)));
+                new SubscriptionService.PlanInfo("SECURITIES", "증권 플랜", 1, 9900)));
 
         mockMvc.perform(get("/api/v1/subscriptions/plans"))
                 .andExpect(status().isOk())
