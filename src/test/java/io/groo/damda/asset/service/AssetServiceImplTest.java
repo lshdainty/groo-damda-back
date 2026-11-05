@@ -655,6 +655,43 @@ class AssetServiceImplTest {
         }
 
         @Test
+        @DisplayName("createTransfer USD → 원 $1,000 — 금액은 보내는 계좌 통화, to_amount 1,300,000원")
+        void createFromForeignSender() {
+            real(10L, "USD", "1300");
+            real(11L, "KRW", null);
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            assertThat(info.amount()).isEqualTo(1_000L);
+            assertThat(info.toAmount()).isEqualTo(1_300_000L);
+        }
+
+        @Test
+        @DisplayName("updateTransfer 메모만 고침(H1) — 그 사이 환율을 1,350 으로 고쳐도 to_amount 1,000 · 잔액 기록 그대로, 시각만 옮김")
+        void memoOnlyUpdateKeepsMoney() {
+            Asset krw = real(10L, "KRW", null);
+            Asset usd = real(11L, "USD", "1300");
+            AssetTransfer transfer = transferOf(5L, krw, usd, 1_300_000L, null);
+            transfer.resolveToAmount(null);
+            given(assetTransferRepository.findById(5L)).willReturn(Optional.of(transfer));
+            ReflectionTestUtils.setField(usd, "exchangeRate", new java.math.BigDecimal("1350"));
+            java.time.LocalDateTime newDate = LocalDate.of(2026, 6, 3).atStartOfDay();
+            given(balanceHistoryService.retimeTransfer(5L, newDate)).willReturn(true);
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_300_000L, 0L, 0L, "메모만 고침", newDate, null));
+
+            assertThat(transfer.getToAmount()).isEqualTo(1_000L);     // 963 으로 바뀌지 않는다
+            assertThat(transfer.getDescription()).isEqualTo("메모만 고침");
+            verify(balanceHistoryService).retimeTransfer(5L, newDate);
+            verify(balanceHistoryService, never()).removeTransfer(anyLong());
+            verify(balanceHistoryService, never()).recordTransfer(any(AssetTransfer.class));
+        }
+
+        @Test
         @DisplayName("createTransfer 원 → 원 — to_amount NULL(지금 해석)")
         void createSameCurrencyKeepsNull() {
             real(10L, "KRW", null);
@@ -688,7 +725,7 @@ class AssetServiceImplTest {
                 USER_ID, 10L, 12L, 50_000L, 0L, 0L, "이체",
                 LocalDate.of(2026, 11, 6).atStartOfDay(), null));
             assertThat(transfer.getToAmount()).isNull();
-            // 옛 기록은 매번 걷고 새 값으로 다시 적는다.
+            // 금액 · 계좌가 바뀐 수정은 옛 기록을 걷고 새 값으로 다시 적는다.
             verify(balanceHistoryService, org.mockito.Mockito.times(2)).removeTransfer(5L);
             verify(balanceHistoryService, org.mockito.Mockito.times(2)).recordTransfer(transfer);
         }

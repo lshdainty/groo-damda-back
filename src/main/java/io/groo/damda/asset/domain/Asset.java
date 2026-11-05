@@ -302,6 +302,26 @@ public class Asset extends AuditingFieldsWithIp {
         return krwToAssetCurrency(krw);
     }
 
+    /**
+     * 이 자산 통화 금액 → 다른 자산 통화 금액. 원화를 거쳐 {@code round(units × 이 환율 ÷ 상대 환율, HALF_UP)}
+     * — 반올림은 마지막 <b>한 번</b>뿐이다. 통화가 같으면 그대로(두 계좌 환율이 달라도 같은 통화는 같은 값).
+     *
+     * <p>예: USD(1,300) $1,000 → EUR(1,450) = 1,300,000 ÷ 1,450 = 896.55 → €897.
+     * 원화 1,300,000 → USD(1,300) = $1,000. USD $1,000 → 원화 = 1,300,000.
+     */
+    public long convertTo(long units, Asset target) {
+        if (target == null || sameCurrencyAs(target)) {
+            return units;
+        }
+        BigDecimal krw = effectiveRate().multiply(BigDecimal.valueOf(units));
+        return krw.divide(target.effectiveRate(), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+    }
+
+    /** 환산에 쓰는 환율 — 원화 · 환율 없음 · 0 이하는 1. */
+    private BigDecimal effectiveRate() {
+        return isIdentityRate() ? BigDecimal.ONE : exchangeRate;
+    }
+
     /** 두 자산의 통화가 같은가 — 비어 있으면 원화로 본다. */
     public boolean sameCurrencyAs(Asset other) {
         String a = currency == null || currency.isBlank() ? "KRW" : currency;

@@ -88,23 +88,43 @@ class ForeignTransferHistoryTest {
     }
 
     @Test
-    @DisplayName("USD → 원 1,300,000원: 달러 계좌 −1,000 · 통장 +1,300,000")
+    @DisplayName("USD → 원 $1,000: 달러 계좌 −1,000 · 통장 +1,300,000")
     void usdToKrw() {
-        assertThat(record(asset(1, "USD", "1300"), asset(2, "KRW", null), 1_300_000L, 0L))
+        assertThat(record(asset(1, "USD", "1300"), asset(2, "KRW", null), 1_000L, 0L))
             .containsExactly(-1_000L, 1_300_000L);
     }
 
     @Test
-    @DisplayName("USD → EUR 1,300,000원: −1,000 · +897")
+    @DisplayName("USD → EUR $1,000: −1,000 · +897")
     void usdToEur() {
-        assertThat(record(asset(1, "USD", "1300"), asset(2, "EUR", "1450"), 1_300_000L, 0L))
+        assertThat(record(asset(1, "USD", "1300"), asset(2, "EUR", "1450"), 1_000L, 0L))
             .containsExactly(-1_000L, 897L);
     }
 
     @Test
-    @DisplayName("USD → USD 1,300,000원: −1,000 · +1,000 (to_amount NULL)")
+    @DisplayName("USD → USD $1,000: −1,000 · +1,000 (to_amount NULL)")
     void usdToUsd() {
-        assertThat(record(asset(1, "USD", "1300"), asset(2, "USD", "1300"), 1_300_000L, 0L))
+        assertThat(record(asset(1, "USD", "1300"), asset(2, "USD", "1310"), 1_000L, 0L))
             .containsExactly(-1_000L, 1_000L);
+    }
+
+    @Test
+    @DisplayName("retimeTransfer — 두 행의 금액은 그대로, 시각만 옮긴다")
+    void retimeKeepsAmounts() {
+        AssetBalanceHistory out = AssetBalanceHistory.of(user, asset(1, "KRW", null),
+            io.groo.damda.asset.type.BalanceSourceType.TRANSFER, 50L, -1_300_000L, AT);
+        AssetBalanceHistory in = AssetBalanceHistory.of(user, asset(2, "USD", "1350"),
+            io.groo.damda.asset.type.BalanceSourceType.TRANSFER, 50L, 1_000L, AT);
+        org.mockito.BDDMockito.given(repository.findActiveBySource(
+                io.groo.damda.asset.type.BalanceSourceType.TRANSFER, 50L, io.groo.core.type.YNType.N))
+            .willReturn(List.of(out, in));
+
+        LocalDateTime later = AT.plusDays(1);
+        assertThat(sut.retimeTransfer(50L, later)).isTrue();
+
+        assertThat(out.getAmount()).isEqualTo(-1_300_000L);
+        assertThat(in.getAmount()).isEqualTo(1_000L);      // 환율 1,350 이어도 963 으로 바뀌지 않는다
+        assertThat(in.getEffectiveAt()).isEqualTo(later);
+        verify(repository, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
     }
 }

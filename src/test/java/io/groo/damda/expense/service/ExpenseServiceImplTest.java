@@ -422,6 +422,47 @@ class ExpenseServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateExpense 돈 칸 그대로(M1) — 저장된 증감의 시각만 옮기고 지웠다 다시 적지 않는다")
+    void updateExpenseMoneySameRetimes() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        Expense expense = Expense.createExpense(u, leaf, null, ExpenseType.EXPENSE, 10_000L,
+                "x", LocalDateTime.of(2026, 6, 1, 12, 0), null, null, null,
+            null, null, null);
+        ReflectionTestUtils.setField(expense, "rowId", 5L);
+        given(expenseRepository.findById(5L)).willReturn(Optional.of(expense));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        given(balanceHistoryService.retimeExpense(any(), eq(5L), any())).willReturn(true);
+
+        sut.updateExpense(5L, USER_ID, updateCmd(10L));   // 금액 10,000 · 유형 · 계좌 그대로, 메모만
+
+        verify(balanceHistoryService).retimeExpense(any(), eq(5L), eq(LocalDateTime.of(2026, 6, 1, 12, 0)));
+        verify(balanceHistoryService, never()).removeExpense(5L);
+        verify(balanceHistoryService, never()).recordExpenseKrw(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("updateExpense 금액이 바뀌면 — 시각만 옮기지 않고 지웠다 다시 적는다")
+    void updateExpenseMoneyChangedRebuilds() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        Expense expense = Expense.createExpense(u, leaf, null, ExpenseType.EXPENSE, 9_000L,
+                "x", LocalDateTime.of(2026, 6, 1, 12, 0), null, null, null,
+            null, null, null);
+        ReflectionTestUtils.setField(expense, "rowId", 5L);
+        given(expenseRepository.findById(5L)).willReturn(Optional.of(expense));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+
+        sut.updateExpense(5L, USER_ID, updateCmd(10L));   // 9,000 → 10,000
+
+        verify(balanceHistoryService, never()).retimeExpense(any(), any(), any());
+        verify(balanceHistoryService).removeExpense(5L);
+        verify(balanceHistoryService).recordExpenseKrw(any(), eq(5L), any(), eq(10_000L), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("deleteExpense — removeExpense 만 호출(recordExpense 없음)")
     void deleteExpenseRemovesOnly() {
         Expense expense = mock(Expense.class);
@@ -1260,7 +1301,7 @@ class ExpenseServiceImplTest {
 
             assertThat(info.refundedAt()).isNull();
             assertThat(e.isCountable()).isTrue();
-            then(balanceHistoryService).should().recordExpenseKrw(
+            then(balanceHistoryService).should().restoreExpense(
                 null, 1L, ExpenseType.EXPENSE, 50_000L, null, null, LocalDateTime.of(2026, 7, 10, 12, 0));
         }
 

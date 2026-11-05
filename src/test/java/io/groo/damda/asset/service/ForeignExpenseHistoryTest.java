@@ -40,6 +40,7 @@ class ForeignExpenseHistoryTest {
     @Mock private AssetBalanceHistoryRepository repository;
     @Mock private UserClock userClock;
     @Mock private AssetRepository assetRepository;
+    @Mock private io.groo.damda.expense.repository.ExpenseRepository expenseRepository;
     @InjectMocks private AssetBalanceHistoryService sut;
 
     private static final LocalDateTime AT = LocalDateTime.of(2026, 11, 6, 10, 0);
@@ -116,5 +117,107 @@ class ForeignExpenseHistoryTest {
         sut.recordExpenseKrw(asset(1, AssetType.BANK_ACCOUNT, "USD", "1300", null), 100L,
             ExpenseType.EXPENSE, null, null, null, AT);
         verify(repository, never()).save(any());
+    }
+
+    private AssetBalanceHistory row(long rowId, Asset asset, long amount, boolean deleted) {
+        AssetBalanceHistory h = AssetBalanceHistory.of(user, asset,
+            io.groo.damda.asset.type.BalanceSourceType.EXPENSE, 100L, amount, AT);
+        ReflectionTestUtils.setField(h, "rowId", rowId);
+        if (deleted) {
+            h.softDelete();
+        }
+        return h;
+    }
+
+    @Test
+    @DisplayName("M1 retimeExpense — 메모만 고친 수정: 환율을 1,400 으로 고쳐도 −$10 그대로, 시각만 옮긴다")
+    void retimeKeepsStoredAmount() {
+        Asset usd = asset(1, AssetType.BANK_ACCOUNT, "USD", "1400", null);
+        AssetBalanceHistory h = row(5L, usd, -10L, false);
+        org.mockito.BDDMockito.given(repository.findActiveBySource(
+                io.groo.damda.asset.type.BalanceSourceType.EXPENSE, 100L, YNType.N))
+            .willReturn(java.util.List.of(h));
+
+        assertThat(sut.retimeExpense(usd, 100L, AT.plusDays(2))).isTrue();
+
+        assertThat(h.getAmount()).isEqualTo(-10L);          // 다시 계산하면 −9
+        assertThat(h.getEffectiveAt()).isEqualTo(AT.plusDays(2));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("M1 retimeExpense — 행이 다른 계좌에 있으면(연결 변경 등) 옮기지 않고 false")
+    void retimeRefusesOtherAsset() {
+        Asset usd = asset(1, AssetType.BANK_ACCOUNT, "USD", "1300", null);
+        Asset other = asset(2, AssetType.BANK_ACCOUNT, "KRW", null, null);
+        org.mockito.BDDMockito.given(repository.findActiveBySource(
+                io.groo.damda.asset.type.BalanceSourceType.EXPENSE, 100L, YNType.N))
+            .willReturn(java.util.List.of(row(5L, other, -13_000L, false)));
+
+        assertThat(sut.retimeExpense(usd, 100L, AT)).isFalse();
+    }
+
+    @Test
+    @DisplayName("M1 restoreExpense — 환불 취소는 환불 때 걷은 −$10 을 그대로 되살린다(환율 1,400 이어도)")
+    void restoreUsesLastRemovedRow() {
+        Asset usd = asset(1, AssetType.BANK_ACCOUNT, "USD", "1400", null);
+        org.mockito.BDDMockito.given(repository.findActiveBySource(
+                io.groo.damda.asset.type.BalanceSourceType.EXPENSE, 100L, YNType.Y))
+            .willReturn(java.util.List.of(row(3L, usd, -12L, true), row(5L, usd, -10L, true)));
+
+        sut.restoreExpense(usd, 100L, ExpenseType.EXPENSE, 13_000L, null, null, AT);
+
+        AssetBalanceHistory h = saved();
+        assertThat(h.getAmount()).isEqualTo(-10L);          // 가장 나중 행(row 5), 다시 계산하면 −9
+        assertThat(h.getAsset()).isSameAs(usd);
+    }
+
+    @Test
+    @DisplayName("M1 restoreExpense — 되살릴 행이 없으면 지금 환율로 새로 적는다")
+    void restoreFallsBackToRecord() {
+        Asset usd = asset(1, AssetType.BANK_ACCOUNT, "USD", "1300", null);
+        org.mockito.BDDMockito.given(repository.findActiveBySource(
+                io.groo.damda.asset.type.BalanceSourceType.EXPENSE, 100L, YNType.Y))
+            .willReturn(java.util.List.of());
+
+        sut.restoreExpense(usd, 100L, ExpenseType.EXPENSE, 13_000L, null, null, AT);
+
+        assertThat(saved().getAmount()).isEqualTo(-10L);
+    }
+
+    @Test
+    @DisplayName("M2 체크카드 연결을 원화 통장 → USD 통장(1,300)으로 — 옛 13,000원 지출이 −$10 으로 옮겨 적힌다")
+    void relinkConvertsToNewAccountCurrency() {
+        Asset krwBank = asset(10, AssetType.BANK_ACCOUNT, "KRW", null, null);
+        Asset usdBank = asset(11, AssetType.BANK_ACCOUNT, "USD", "1300", null);
+        Asset card = asset(12, AssetType.CHECK_CARD, "KRW", null, krwBank);
+        AssetBalanceHistory h = row(5L, krwBank, -13_000L, false);
+        org.mockito.BDDMockito.given(repository.findActiveExpenseHistoryPaidWith(12L, YNType.N))
+            .willReturn(java.util.List.of(h));
+        io.groo.damda.expense.domain.Expense e = io.groo.damda.expense.domain.Expense.createExpense(
+            user, null, card, ExpenseType.EXPENSE, 13_000L, "점심", AT, null, "CARD", null, null, null, null);
+        org.mockito.BDDMockito.given(expenseRepository.findById(100L)).willReturn(java.util.Optional.of(e));
+
+        sut.relinkCheckCardHistory(card, usdBank);
+
+        assertThat(h.getAsset()).isSameAs(usdBank);
+        assertThat(h.getAmount()).isEqualTo(-10L);
+    }
+
+    @Test
+    @DisplayName("M2 원화 → 원화 연결 변경은 금액 그대로 옮긴다(지금 동작, 거래를 읽지 않음)")
+    void relinkKrwKeepsAmount() {
+        Asset a = asset(10, AssetType.BANK_ACCOUNT, "KRW", null, null);
+        Asset b = asset(11, AssetType.BANK_ACCOUNT, "KRW", null, null);
+        Asset card = asset(12, AssetType.CHECK_CARD, "KRW", null, a);
+        AssetBalanceHistory h = row(5L, a, -13_000L, false);
+        org.mockito.BDDMockito.given(repository.findActiveExpenseHistoryPaidWith(12L, YNType.N))
+            .willReturn(java.util.List.of(h));
+
+        sut.relinkCheckCardHistory(card, b);
+
+        assertThat(h.getAsset()).isSameAs(b);
+        assertThat(h.getAmount()).isEqualTo(-13_000L);
+        verify(expenseRepository, never()).findById(any());
     }
 }

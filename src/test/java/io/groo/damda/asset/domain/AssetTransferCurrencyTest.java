@@ -12,8 +12,8 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 통화가 다른 두 자산 사이 이체 — 금액(amount · fee · interest)은 원화로 들어오고, 양쪽 잔액 증감은
- * 각 자산 통화로 적힌다. 받는 쪽 금액은 통화가 다를 때만 to_amount 로 박아 둔다.
+ * 통화가 다른 두 자산 사이 이체 — 금액(amount · fee · interest)은 <b>보내는 계좌 통화</b>이고, 받는 쪽
+ * 금액은 통화가 다를 때만 to_amount(받는 쪽 통화)로 박아 둔다.
  *
  * <p>환율: USD 1,300 · EUR 1,450. 원화는 1.
  */
@@ -65,6 +65,19 @@ class AssetTransferCurrencyTest {
         }
 
         @Test
+        @DisplayName("자산 통화 → 다른 자산 통화: 원화를 거쳐 반올림은 마지막 한 번")
+        void convertTo() {
+            Asset usd = asset("USD", "1300");
+            Asset eur = asset("EUR", "1450");
+            Asset krw = asset("KRW", null);
+            assertThat(usd.convertTo(1_000L, eur)).isEqualTo(897L);          // 896.55
+            assertThat(usd.convertTo(1_000L, krw)).isEqualTo(1_300_000L);
+            assertThat(krw.convertTo(1_300_000L, usd)).isEqualTo(1_000L);
+            assertThat(usd.convertTo(1_000L, asset("USD", "1310"))).isEqualTo(1_000L); // 같은 통화는 그대로
+            assertThat(krw.convertTo(5_000L, krw)).isEqualTo(5_000L);
+        }
+
+        @Test
         @DisplayName("거래 금액: 같은 통화의 원 통화 금액이 있으면 그 값, 아니면 원화 ÷ 계좌 환율")
         void expenseAmount() {
             Asset usd = asset("USD", "1300");
@@ -82,7 +95,7 @@ class AssetTransferCurrencyTest {
     }
 
     @Nested
-    @DisplayName("이체 네 가지 조합")
+    @DisplayName("이체 조합 — 금액은 보내는 계좌 통화")
     class Combos {
 
         @Test
@@ -95,7 +108,7 @@ class AssetTransferCurrencyTest {
         }
 
         @Test
-        @DisplayName("원 → USD: to_amount = 1,300,000 ÷ 1,300 = 1,000, 통장은 원화로 빠진다")
+        @DisplayName("원 → USD 1,300,000원 · 수수료 1,000원: to_amount 1,000, 통장 −1,301,000원")
         void krwToUsd() {
             AssetTransfer t = transfer(asset("KRW", null), asset("USD", "1300"), 1_300_000L, 1_000L, 0L);
             assertThat(t.getToAmount()).isEqualTo(1_000L);
@@ -104,27 +117,27 @@ class AssetTransferCurrencyTest {
         }
 
         @Test
-        @DisplayName("USD → 원: 출금 −round((1,300,000+1,300) ÷ 1,300) = −1,001, 입금 +1,300,000원")
+        @DisplayName("USD → 원 $1,000 · 수수료 $1: 달러 계좌 −$1,001, 통장 +1,300,000원")
         void usdToKrw() {
-            AssetTransfer t = transfer(asset("USD", "1300"), asset("KRW", null), 1_300_000L, 1_300L, 0L);
+            AssetTransfer t = transfer(asset("USD", "1300"), asset("KRW", null), 1_000L, 1L, 0L);
             assertThat(t.getToAmount()).isEqualTo(1_300_000L);
             assertThat(t.fromBalanceDelta()).isEqualTo(-1_001L);
             assertThat(t.toBalanceDelta()).isEqualTo(1_300_000L);
         }
 
         @Test
-        @DisplayName("USD → EUR: −$1,000 · +€897 (1,300,000 ÷ 1,450 = 896.55)")
+        @DisplayName("USD → EUR $1,000: −$1,000 · +€897 (1,000 × 1,300 ÷ 1,450 = 896.55)")
         void usdToEur() {
-            AssetTransfer t = transfer(asset("USD", "1300"), asset("EUR", "1450"), 1_300_000L, 0L, 0L);
+            AssetTransfer t = transfer(asset("USD", "1300"), asset("EUR", "1450"), 1_000L, 0L, 0L);
             assertThat(t.getToAmount()).isEqualTo(897L);
             assertThat(t.fromBalanceDelta()).isEqualTo(-1_000L);
             assertThat(t.toBalanceDelta()).isEqualTo(897L);
         }
 
         @Test
-        @DisplayName("USD → USD(환율이 다른 계좌): to_amount NULL, 보낸 만큼($1,000) 받는다")
+        @DisplayName("USD → USD(환율이 다른 계좌) $1,000: to_amount NULL, 보낸 만큼 받는다")
         void usdToUsdDifferentRate() {
-            AssetTransfer t = transfer(asset("USD", "1300"), asset("USD", "1310"), 1_300_000L, 0L, 0L);
+            AssetTransfer t = transfer(asset("USD", "1300"), asset("USD", "1310"), 1_000L, 0L, 0L);
             assertThat(t.getToAmount()).isNull();
             assertThat(t.fromBalanceDelta()).isEqualTo(-1_000L);
             assertThat(t.toBalanceDelta()).isEqualTo(1_000L);
@@ -140,16 +153,16 @@ class AssetTransferCurrencyTest {
         }
 
         @Test
-        @DisplayName("원 → USD 대출: 원금 = to_amount − 이자 ÷ 받는 쪽 환율")
-        void foreignLoanInterest() {
+        @DisplayName("원 → USD 대출 1,000,000 · 이자 650: 원금을 한 번에 환산 round(999,350 ÷ 1,300 = 768.73) = 769")
+        void foreignLoanInterestRoundsOnce() {
             AssetTransfer t = transfer(asset("KRW", null), asset(AssetType.LOAN, "USD", "1300"),
-                1_300_000L, 0L, 130_000L);
-            assertThat(t.getToAmount()).isEqualTo(1_000L);
-            assertThat(t.toBalanceDelta()).isEqualTo(900L);
+                1_000_000L, 0L, 650L);
+            assertThat(t.getToAmount()).isEqualTo(769L);
+            assertThat(t.toBalanceDelta()).isEqualTo(769L);   // 두 번 반올림하면 769 − 1 = 768
         }
 
         @Test
-        @DisplayName("서버가 받는 금액을 못 박으면(매수 충당) 그 값을 쓴다 — 같은 통화면 무시하고 NULL")
+        @DisplayName("서버가 받는 금액을 못 박으면(매수 충당 · 카드 결제) 그 값을 쓴다 — 같은 통화면 무시하고 NULL")
         void override() {
             AssetTransfer cross = AssetTransfer.createTransfer(null, asset("KRW", null), asset("USD", "1300"),
                 1_170_000L, 0L, 0L, "충당", AT);
@@ -174,6 +187,20 @@ class AssetTransferCurrencyTest {
             t.resolveToAmount(null);
             assertThat(t.getToAmount()).isNull();
             assertThat(t.toBalanceDelta()).isEqualTo(70_000L);
+        }
+
+        @Test
+        @DisplayName("sameMoneyAs — 두 계좌 · 금액 · 수수료 · 이자가 같을 때만 true")
+        void sameMoney() {
+            Asset krw = asset("KRW", null);
+            Asset usd = asset("USD", "1300");
+            org.springframework.test.util.ReflectionTestUtils.setField(krw, "rowId", 1L);
+            org.springframework.test.util.ReflectionTestUtils.setField(usd, "rowId", 2L);
+            AssetTransfer t = transfer(krw, usd, 1_300_000L, 0L, 0L);
+            assertThat(t.sameMoneyAs(krw, usd, 1_300_000L, null, 0L)).isTrue();
+            assertThat(t.sameMoneyAs(krw, usd, 1_300_001L, 0L, 0L)).isFalse();
+            assertThat(t.sameMoneyAs(krw, usd, 1_300_000L, 1L, 0L)).isFalse();
+            assertThat(t.sameMoneyAs(usd, krw, 1_300_000L, 0L, 0L)).isFalse();
         }
     }
 }
