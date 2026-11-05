@@ -45,7 +45,7 @@ class NotificationMessagesTest {
         Locale.setDefault(Locale.US);
         try {
             assertThat(sut.budgetOverTitle("식비")).isEqualTo("식비 예산 초과");
-            assertThat(sut.todoDueMessage(false)).isEqualTo("내일 마감인 할일이 있어요");
+            assertThat(sut.todoDueMessage(false)).isEqualTo("내일 마감인 할 일이 있어요");
         } finally {
             Locale.setDefault(original);
         }
