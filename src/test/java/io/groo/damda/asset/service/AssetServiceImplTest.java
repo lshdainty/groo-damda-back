@@ -730,4 +730,85 @@ class AssetServiceImplTest {
             verify(balanceHistoryService, org.mockito.Mockito.times(2)).recordTransfer(transfer);
         }
     }
+
+    // ── 통화 규칙(H2 · L7) ─────────────────────────────────────────
+
+    @Nested
+    @DisplayName("자산 통화 규칙 — 카드는 원화만, 외화 자산은 환율 > 0")
+    class CurrencyRules {
+
+        @Test
+        @DisplayName("validateCurrency — 원화는 무엇이든 통과, 외화 계좌는 환율 > 0, 카드는 외화 거절")
+        void rules() {
+            AssetServiceImpl.validateCurrency(AssetType.CREDIT_CARD, "KRW", null);
+            AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, null, null);
+            AssetServiceImpl.validateCurrency(AssetType.INVESTMENT, "USD", new java.math.BigDecimal("1300"));
+
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.INVESTMENT, "USD", null))
+                .isInstanceOf(InvalidValueException.class)
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, "EUR",
+                    java.math.BigDecimal.ZERO))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, "usd",
+                    new java.math.BigDecimal("-1")))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.CREDIT_CARD, "USD",
+                    new java.math.BigDecimal("1300")))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.CHECK_CARD, "JPY",
+                    new java.math.BigDecimal("9.1")))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+        }
+
+        @Test
+        @DisplayName("createAsset — USD 신용카드는 저장 전에 거절")
+        void createRejectsForeignCard() {
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            var cmd = new AssetServiceDto.CreateAssetCommand(
+                USER_ID, "해외카드", AssetType.CREDIT_CARD, 0L, null, "USD",
+                new java.math.BigDecimal("1300"), null, null, null, 0,
+                YNType.Y, YNType.N, null, null, 15, null, null);
+
+            assertThatThrownBy(() -> sut.createAsset(cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            verify(assetRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("createAsset — 환율 없는 USD 통장은 거절")
+        void createRejectsForeignWithoutRate() {
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            var cmd = new AssetServiceDto.CreateAssetCommand(
+                USER_ID, "달러 통장", AssetType.BANK_ACCOUNT, 100L, null, "USD",
+                null, null, null, null, 0,
+                YNType.Y, YNType.N, null, null, null, null, null);
+
+            assertThatThrownBy(() -> sut.createAsset(cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+        }
+
+        @Test
+        @DisplayName("updateAsset — 원화 체크카드의 통화를 USD 로 바꾸면 거절, 카드 필드는 그대로")
+        void updateRejectsForeignCard() {
+            Asset card = Asset.createAsset(user(USER_ID), "체크", AssetType.CHECK_CARD, 0L, "KRW",
+                null, null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(card, "rowId", 7L);
+            given(assetRepository.findById(7L)).willReturn(Optional.of(card));
+            var cmd = new AssetServiceDto.UpdateAssetCommand(
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.set("USD"),
+                io.groo.damda.common.patch.Patch.set(new java.math.BigDecimal("1300")),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), null);
+
+            assertThatThrownBy(() -> sut.updateAsset(7L, USER_ID, cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            assertThat(card.getCurrency()).isEqualTo("KRW");
+        }
+    }
 }

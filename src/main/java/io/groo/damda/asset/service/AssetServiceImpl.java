@@ -102,6 +102,7 @@ public class AssetServiceImpl implements AssetService {
         if (command.assetType() == AssetType.CREDIT_CARD && command.paymentDay() == null) {
             throw new InvalidValueException(DeskErrorCode.ASSET_CARD_PAYMENT_DAY_REQUIRED);
         }
+        validateCurrency(command.assetType(), command.currency(), command.exchangeRate());
 
         CardCatalog cardCatalog = resolveCardCatalog(command.cardCatalogRowId());
         Asset paymentAsset = resolvePaymentAssetOrNone(command.paymentAssetRowId(), command.userRowId());
@@ -384,6 +385,10 @@ public class AssetServiceImpl implements AssetService {
                 && (command.paymentDay().present() || !wasCard)) {
             throw new InvalidValueException(DeskErrorCode.ASSET_CARD_PAYMENT_DAY_REQUIRED);
         }
+        // 통화 · 환율 규칙은 생성과 같다 — 실린 값과 지금 값을 합친 결과로 본다.
+        validateCurrency(effectiveType,
+            command.currency().orKeep(asset.getCurrency()),
+            command.exchangeRate().orKeep(asset.getExchangeRate()));
         // 결제일 변경은 다음 회차부터(D5) — 자산을 고치기 전에(옛 결제일을 들고 있을 때) 이력을 적는다.
         if (wasCard && effectiveType == AssetType.CREDIT_CARD && effectiveDay != null
                 && !effectiveDay.equals(asset.getPaymentDay())) {
@@ -1327,6 +1332,27 @@ public class AssetServiceImpl implements AssetService {
         // 잔액 이력은 남기지 않는다 — 이자는 출금액(amount)에 이미 들어 있다.
         return Expense.createExpense(user, null, from, ExpenseType.EXPENSE, krw,
             description, at, null, "TRANSFER", null, original, originalCurrency, rate);
+    }
+
+    /**
+     * 자산 통화 규칙 — 생성 · 수정이 같은 규칙을 쓴다.
+     * <ul>
+     *   <li>신용 · 체크카드는 원화만. 청구 · 상계 · 결제 · 이월이 모두 원화 장부라 카드 통화를 바꾸면
+     *       카드 흐름과 청구가 다른 단위가 되어 과납 환급이 없는 돈을 만든다. 해외 결제는 거래의 통화 칸으로.</li>
+     *   <li>외화 자산은 환율이 0 보다 커야 한다. 비우면 서버가 1 로 저장해 $1 이 1원으로 잡혔다.</li>
+     * </ul>
+     */
+    static void validateCurrency(AssetType type, String currency, java.math.BigDecimal exchangeRate) {
+        boolean foreign = currency != null && !currency.isBlank() && !"KRW".equalsIgnoreCase(currency.trim());
+        if (!foreign) {
+            return;
+        }
+        if (type == AssetType.CREDIT_CARD || type == AssetType.CHECK_CARD) {
+            throw new InvalidValueException(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY);
+        }
+        if (exchangeRate == null || exchangeRate.signum() <= 0) {
+            throw new InvalidValueException(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED);
+        }
     }
 
     /** 이체 양쪽 자산과 검증된 이자. 생성·수정이 같은 규칙을 쓴다. */
