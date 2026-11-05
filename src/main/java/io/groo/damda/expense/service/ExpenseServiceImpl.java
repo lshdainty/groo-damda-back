@@ -200,8 +200,10 @@ public class ExpenseServiceImpl implements ExpenseService {
         expenseRepository.save(expense);
 
         // 자산 잔액 이력: 거래 flow 적재 — 잔액은 조회할 때 이력에서 집계한다
-        balanceHistoryService.recordExpense(asset, expense.getRowId(),
-            command.expenseType(), command.amount(), command.expenseDate());
+        // 금액은 원화 — 외화 계좌면 계좌 통화로 바꿔 적는다(같은 통화 원 통화 금액이 있으면 그 값).
+        balanceHistoryService.recordExpenseKrw(asset, expense.getRowId(),
+            command.expenseType(), command.amount(),
+            expense.getOriginalAmount(), expense.getOriginalCurrency(), command.expenseDate());
 
         // 닫힌 회차에 떨어진 카드 몫은 기록용이다(D1·D2) — 결제일 당일도 닫혔다.
         CardPaymentServiceDto.SettlementResult settled = settleCard(expense, CardCycleMath.Side.none(),
@@ -307,6 +309,11 @@ public class ExpenseServiceImpl implements ExpenseService {
         // 금액만 줄면 그 차액이 상한이다.
         Asset cardBefore = creditCardOf(expense);
         Long amountBefore = expense.getAmount();
+        // 잔액 기록을 다시 계산할지 가르는 돈 칸(계좌 · 유형 · 금액 · 원 통화) — 병합 전 값.
+        Long assetIdBefore = expense.getAsset() != null ? expense.getAsset().getRowId() : null;
+        ExpenseType typeBefore = expense.getExpenseType();
+        java.math.BigDecimal originalBefore = expense.getOriginalAmount();
+        String originalCurrencyBefore = expense.getOriginalCurrency();
         LocalDateTime dateBefore = expense.getExpenseDate();
         String refundMemoBase = cardRefundMemo(expense, false);
         CardCycleMath.Side sideBefore = sideOf(expense);
@@ -367,9 +374,18 @@ public class ExpenseServiceImpl implements ExpenseService {
 
         // 자산 잔액 이력: 기존 flow soft-delete 후 새 flow 적재(자산 변경 포함).
         // 병합한 값을 쓴다 — 안 보낸 칸을 그대로 실으면 이력이 null 금액·null 일자로 남는다.
-        balanceHistoryService.removeExpense(expense.getRowId());
-        balanceHistoryService.recordExpense(asset, expense.getRowId(),
-            expenseType, amount, expenseDate);
+        // 돈 칸이 그대로면(메모 · 카테고리 · 날짜만) 저장된 증감을 그대로 두고 시각만 옮긴다 — 외화 계좌에서
+        // 그 사이 계좌 환율을 고쳤어도 지난 거래의 잔액 기록이 흔들리지 않는다.
+        boolean moneySame = Objects.equals(assetIdBefore, asset != null ? asset.getRowId() : null)
+            && typeBefore == expenseType
+            && Objects.equals(amountBefore, amount)
+            && sameDecimal(originalBefore, expense.getOriginalAmount())
+            && Objects.equals(originalCurrencyBefore, expense.getOriginalCurrency());
+        if (!(moneySame && balanceHistoryService.retimeExpense(asset, expense.getRowId(), expenseDate))) {
+            balanceHistoryService.removeExpense(expense.getRowId());
+            balanceHistoryService.recordExpenseKrw(asset, expense.getRowId(),
+                expenseType, amount, expense.getOriginalAmount(), expense.getOriginalCurrency(), expenseDate);
+        }
 
         // 일정·할 일 연결은 <b>실렸을 때만</b> 손댄다 — 안 보낸 요청이 붙여 둔 연결을 끊으면 안 된다.
         expense.setCalendarEvent(command.calendarEventRowId()
@@ -770,8 +786,10 @@ public class ExpenseServiceImpl implements ExpenseService {
         // 환불 때 붙잡은 몫도 무른다 — 표식·상계는 환불 전 그대로라 이것으로 환불 전 모습이 된다.
         balanceHistoryService.removeCardRefundHold(expenseId);
         // 원거래 흐름을 다시 적재한다 — 카드는 다시 빚이 되고 청구도 다시 늘어난다.
-        balanceHistoryService.recordExpense(expense.getAsset(), expense.getRowId(),
-            expense.getExpenseType(), expense.getAmount(), expense.getExpenseDate());
+        // 돈 칸은 환불 동안 잠겨 있다 — 환불 때 걷은 증감을 그대로 되살린다(지금 환율로 다시 계산하지 않는다).
+        balanceHistoryService.restoreExpense(expense.getAsset(), expense.getRowId(),
+            expense.getExpenseType(), expense.getAmount(),
+            expense.getOriginalAmount(), expense.getOriginalCurrency(), expense.getExpenseDate());
         // 환불 동안 결제일이 된 회차는 그 결제에 이 거래가 빠져 있었다 — 결제가 덮지 못한 만큼 기록용.
         settleCard(expense, CardCycleMath.Side.none(), sideOf(expense), null, userRowId,
             CardPaymentServiceDto.SettlementMode.CANCEL_REFUND);

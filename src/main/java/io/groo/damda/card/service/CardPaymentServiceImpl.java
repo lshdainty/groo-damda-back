@@ -418,18 +418,23 @@ public class CardPaymentServiceImpl implements CardPaymentService {
 
     private AssetServiceDto.TransferInfo createPaymentTransfer(Asset card, Asset paymentAsset, long amount,
                                                               Long userRowId, LocalDateTime at) {
+        // 이체 금액은 보내는 계좌 통화다. 결제 계좌가 외화면 카드 금액(원화)을 그 계좌 통화로 바꿔 보내고,
+        // 카드가 받는 금액은 청구액 그대로 못 박는다(왕복 반올림 없이 카드가 정확히 0 이 된다).
+        // 카드는 원화만 둔다(AssetServiceImpl.validateCurrency) — 결제 계좌가 외화일 때만 통화가 갈린다.
+        boolean sameCurrency = !paymentAsset.isForeignCurrency();
         return assetService.createTransfer(new AssetServiceDto.CreateTransferCommand(
             userRowId,
             paymentAsset.getRowId(),
             card.getRowId(),
-            amount,
+            sameCurrency ? amount : paymentAsset.krwToAssetCurrency(amount),
             0L,
             0L, // 카드 결제는 이자 개념이 없다 — 할부 이자는 청구액에 이미 포함돼 들어온다
             "신용카드 자동결제",
             // 수동 결제는 누른 시각, 자동 결제는 결제일 자정(배치 실행 시각) — 호출자가 정한다.
             at,
             // 카드 결제는 청구 회차와 묶여 있다 — 이 이체만 따로 고치면 청구가 어긋난다.
-            "CARD_PAYMENT"
+            "CARD_PAYMENT",
+            sameCurrency ? null : amount
         ));
     }
 
@@ -852,7 +857,9 @@ public class CardPaymentServiceImpl implements CardPaymentService {
         for (CardBilling b : rows) {
             if (b.getStatus() == BillingStatus.COMPLETED && start.equals(b.getPeriodStart())
                     && b.getTransfer() != null && b.getTransfer().getAmount() != null) {
-                paid += b.getTransfer().getAmount();
+                // 카드(원화)가 받은 금액 — 결제 계좌가 외화면 이체 amount 는 그 계좌 통화라 to_amount 를 본다.
+                paid += b.getTransfer().getToAmount() != null
+                    ? b.getTransfer().getToAmount() : b.getTransfer().getAmount();
             }
         }
         return paid;

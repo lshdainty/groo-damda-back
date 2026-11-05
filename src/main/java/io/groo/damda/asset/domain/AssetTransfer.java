@@ -45,6 +45,17 @@ public class AssetTransfer extends AuditingFieldsWithIp {
     @Column(name = "amount", nullable = false)
     private Long amount;
 
+    /**
+     * 받는 쪽 자산 통화 금액. <b>NULL 이면 보낸 금액과 같다</b>(같은 통화 · 칸이 생기기 전 이체 — 지금 해석).
+     *
+     * <p>이체 금액(amount) · 수수료 · 이자는 <b>보내는 계좌 통화</b>다. 두 자산 통화가 다르면 amount 를
+     * 보내는 쪽 환율로 원화로 바꾼 뒤 받는 쪽 환율로 나눈 값(HALF_UP, 한 번)을 만들 때 박아 둔다 —
+     * 나중에 계좌 환율을 고쳐도 지난 이체의 받은 금액이 흔들리지 않는다.
+     * 원화 1,300,000 → USD(1,300) = 1,000 · USD 1,000 → 원화 = 1,300,000 · USD 1,000 → EUR(1,450) = 897.
+     */
+    @Column(name = "to_amount")
+    private Long toAmount;
+
     @Column(name = "fee", nullable = false)
     private Long fee;
 
@@ -113,6 +124,62 @@ public class AssetTransfer extends AuditingFieldsWithIp {
      */
     public long principalAmount() {
         return amount - (interestAmount != null ? interestAmount : 0L);
+    }
+
+    /**
+     * 받는 금액을 정한다 — 두 자산 통화가 다르면 {@code round(amount × 보내는 쪽 환율 ÷ 받는 쪽 환율)},
+     * 같으면 NULL.
+     *
+     * @param override 서버 안에서 받는 금액을 못 박을 때(매수 충당 · 카드 결제). null 이면 위 규칙
+     */
+    public void resolveToAmount(Long override) {
+        if (fromAsset == null || toAsset == null || fromAsset.sameCurrencyAs(toAsset)) {
+            this.toAmount = null;
+            return;
+        }
+        this.toAmount = override != null ? override : fromAsset.convertTo(amount, toAsset);
+    }
+
+    /** 출금 자산 잔액 증감 — {@code −(amount + fee)}. 보내는 계좌 통화 그대로라 환산하지 않는다. */
+    public long fromBalanceDelta() {
+        return -(amount + (fee != null ? fee : 0L));
+    }
+
+    /**
+     * 입금 자산 잔액 증감(입금 자산 통화) — 이자를 뺀 원금만.
+     *
+     * <p>같은 통화(to_amount NULL)는 {@code amount − 이자}(지금 해석). 통화가 다르면 이자가 없을 때
+     * to_amount 그대로, 이자가 있으면 {@code round((amount − 이자) × 보내는 쪽 환율 ÷ 받는 쪽 환율)} —
+     * 원금을 한 번에 환산해 반올림이 두 번 끼지 않는다.
+     */
+    public long toBalanceDelta() {
+        long interest = interestAmount != null ? interestAmount : 0L;
+        if (toAmount == null) {
+            return amount - interest;
+        }
+        if (interest == 0L) {
+            return toAmount;
+        }
+        return fromAsset.convertTo(amount - interest, toAsset);
+    }
+
+    /**
+     * 돈 칸이 그대로인가 — 두 계좌 · 금액 · 수수료 · 이자가 모두 같으면 수정해도 받은 금액과 잔액
+     * 기록을 다시 계산하지 않는다(메모 · 날짜만 고친 수정이 그 사이 바뀐 환율로 잔액을 흔들지 않게).
+     */
+    public boolean sameMoneyAs(Asset newFrom, Asset newTo, Long newAmount, Long newFee, Long newInterest) {
+        return sameAsset(fromAsset, newFrom) && sameAsset(toAsset, newTo)
+            && java.util.Objects.equals(amount, newAmount)
+            && java.util.Objects.equals(fee != null ? fee : 0L, newFee != null ? newFee : 0L)
+            && java.util.Objects.equals(interestAmount != null ? interestAmount : 0L,
+                newInterest != null ? newInterest : 0L);
+    }
+
+    private static boolean sameAsset(Asset a, Asset b) {
+        if (a == b) {
+            return true;
+        }
+        return a != null && b != null && a.getRowId() != null && a.getRowId().equals(b.getRowId());
     }
 
     /** 자동 생성한 이자 지출 거래를 연결한다. */

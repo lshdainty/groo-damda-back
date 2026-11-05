@@ -291,7 +291,12 @@ public class AssetApiDto {
          * 신용카드: 결제 대기 청구분 칸 — 청구분이 있거나, 등록한 달의 그 회차 결제일이 아직 안 왔으면
          * 값(폼이 칸을 그린다). 그 외 null.
          */
-        DueCarryoverResponse dueCarryover
+        DueCarryoverResponse dueCarryover,
+        /**
+         * 원화 환산 합계 = round(cashBalance × exchangeRate) + holdingBalance. 예수금만 자산 통화, 보유 평가는 원화.
+         * 순자산·요약과 같은 식이다. 원화 자산은 balance 와 같다. (기존 칸은 그대로 — 더하기만 했다.)
+         */
+        Long balanceInKrw
     ) {
         public static AssetResponse from(AssetServiceDto.AssetInfo info) {
             return new AssetResponse(
@@ -308,7 +313,8 @@ public class AssetApiDto {
                 info.monthlyUsedAmount(),
                 info.carryoverAmount(), info.carryoverLocked(), info.cardClosedThrough(),
                 info.nextPaymentDate(),
-                DueCarryoverResponse.from(info.dueCarryover())
+                DueCarryoverResponse.from(info.dueCarryover()),
+                info.balanceInKrw()
             );
         }
     }
@@ -382,9 +388,10 @@ public class AssetApiDto {
         }
     }
 
-    public record AssetBalancePointResponse(java.time.LocalDate weekStart, Long balance) {
+    /** balance = 예수금 + 보유(옛 뜻 그대로), balanceInKrw = 원화 합계(한 식). */
+    public record AssetBalancePointResponse(java.time.LocalDate weekStart, Long balance, Long balanceInKrw) {
         public static AssetBalancePointResponse from(AssetServiceDto.AssetBalancePoint p) {
-            return new AssetBalancePointResponse(p.weekStart(), p.balance());
+            return new AssetBalancePointResponse(p.weekStart(), p.balance(), p.balanceInKrw());
         }
     }
 
@@ -456,7 +463,9 @@ public class AssetApiDto {
         /** 시스템이 만든 이체의 출처 (TRADE_SETTLEMENT). null 이면 사용자가 만든 이체 — 값이 있으면 수정·삭제가 잠긴다. */
         String autoSource,
         LocalDateTime transferDate,
-        LocalDateTime createAt
+        LocalDateTime createAt,
+        /** 받는 쪽 자산 통화로 받은 금액. null 이면 amount 와 같은 값을 받았다(같은 통화 · 기존 이체). */
+        Long toAmount
     ) {
         public static TransferResponse from(AssetServiceDto.TransferInfo info) {
             return new TransferResponse(
@@ -465,7 +474,8 @@ public class AssetApiDto {
                 info.toAssetRowId(), info.toAssetName(),
                 info.amount(), info.fee(), info.interestAmount(), info.principalAmount(), info.description(),
                 info.autoSource(),
-                info.transferDate(), info.createAt()
+                info.transferDate(), info.createAt(),
+                info.toAmount()
             );
         }
     }

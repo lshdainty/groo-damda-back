@@ -75,11 +75,16 @@ public final class AssetTradeApiDto {
         Long realizedPl,
         Long cashDelta,
         Long cashAfter,
-        Long fundingAmount
+        Long fundingAmount,
+        /** cashDelta · cashAfter 의 통화(투자 계좌 통화). soldCost · realizedPl 은 원화 */
+        String cashCurrency,
+        /** fundingAmount 의 통화(결제 계좌 통화). 결제 계좌를 안 골랐으면 null */
+        String fundingCurrency
     ) {
         public static TradePreviewResponse from(AssetTradeServiceDto.TradePreview p) {
             return new TradePreviewResponse(
-                p.soldCost(), p.realizedPl(), p.cashDelta(), p.cashAfter(), p.fundingAmount());
+                p.soldCost(), p.realizedPl(), p.cashDelta(), p.cashAfter(), p.fundingAmount(),
+                p.cashCurrency(), p.fundingCurrency());
         }
     }
 }

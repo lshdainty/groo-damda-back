@@ -620,4 +620,212 @@ class AssetServiceImplTest {
             .isInstanceOf(InvalidValueException.class);
         assertThat(transfer.getIsDeleted()).isEqualTo(YNType.N);
     }
+
+    // ── 통화가 다른 이체 — 받는 금액(to_amount) ─────────────────────────
+
+    @Nested
+    @DisplayName("통화가 다른 두 자산 이체 — 받는 쪽 금액을 받는 쪽 환율로 박아 둔다")
+    class CrossCurrencyTransfer {
+
+        private Asset real(long rowId, String currency, String rate) {
+            Asset a = Asset.createAsset(user(USER_ID), currency + rowId, AssetType.BANK_ACCOUNT, 0L, currency,
+                rate != null ? new java.math.BigDecimal(rate) : null,
+                null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(a, "rowId", rowId);
+            given(assetRepository.findById(rowId)).willReturn(Optional.of(a));
+            return a;
+        }
+
+        @Test
+        @DisplayName("createTransfer 원 → USD(1,300) 1,300,000원 — to_amount 1,000 이 저장 · 응답에 실린다")
+        void createStoresToAmount() {
+            real(10L, "KRW", null);
+            real(11L, "USD", "1300");
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            org.mockito.ArgumentCaptor<AssetTransfer> captor = org.mockito.ArgumentCaptor.forClass(AssetTransfer.class);
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_300_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            verify(assetTransferRepository).save(captor.capture());
+            assertThat(captor.getValue().getToAmount()).isEqualTo(1_000L);
+            assertThat(info.toAmount()).isEqualTo(1_000L);
+            assertThat(info.amount()).isEqualTo(1_300_000L);  // 보낸 금액(원화)은 그대로
+        }
+
+        @Test
+        @DisplayName("createTransfer USD → 원 $1,000 — 금액은 보내는 계좌 통화, to_amount 1,300,000원")
+        void createFromForeignSender() {
+            real(10L, "USD", "1300");
+            real(11L, "KRW", null);
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            assertThat(info.amount()).isEqualTo(1_000L);
+            assertThat(info.toAmount()).isEqualTo(1_300_000L);
+        }
+
+        @Test
+        @DisplayName("updateTransfer 메모만 고침(H1) — 그 사이 환율을 1,350 으로 고쳐도 to_amount 1,000 · 잔액 기록 그대로, 시각만 옮김")
+        void memoOnlyUpdateKeepsMoney() {
+            Asset krw = real(10L, "KRW", null);
+            Asset usd = real(11L, "USD", "1300");
+            AssetTransfer transfer = transferOf(5L, krw, usd, 1_300_000L, null);
+            transfer.resolveToAmount(null);
+            given(assetTransferRepository.findById(5L)).willReturn(Optional.of(transfer));
+            ReflectionTestUtils.setField(usd, "exchangeRate", new java.math.BigDecimal("1350"));
+            java.time.LocalDateTime newDate = LocalDate.of(2026, 6, 3).atStartOfDay();
+            given(balanceHistoryService.retimeTransfer(5L, newDate)).willReturn(true);
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_300_000L, 0L, 0L, "메모만 고침", newDate, null));
+
+            assertThat(transfer.getToAmount()).isEqualTo(1_000L);     // 963 으로 바뀌지 않는다
+            assertThat(transfer.getDescription()).isEqualTo("메모만 고침");
+            verify(balanceHistoryService).retimeTransfer(5L, newDate);
+            verify(balanceHistoryService, never()).removeTransfer(anyLong());
+            verify(balanceHistoryService, never()).recordTransfer(any(AssetTransfer.class));
+        }
+
+        @Test
+        @DisplayName("createTransfer 원 → 원 — to_amount NULL(지금 해석)")
+        void createSameCurrencyKeepsNull() {
+            real(10L, "KRW", null);
+            real(11L, "KRW", null);
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 30_000L, 0L, 0L, "이체",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            assertThat(info.toAmount()).isNull();
+        }
+
+        @Test
+        @DisplayName("updateTransfer — 받는 쪽을 USD 에서 원화 계좌로 바꾸면 to_amount 가 NULL, 금액을 바꾸면 다시 환산")
+        void updateRecomputesToAmount() {
+            Asset krw = real(10L, "KRW", null);
+            Asset usd = real(11L, "USD", "1300");
+            real(12L, "KRW", null);
+            AssetTransfer transfer = transferOf(5L, krw, usd, 1_300_000L, null);
+            transfer.resolveToAmount(null);
+            assertThat(transfer.getToAmount()).isEqualTo(1_000L);
+            given(assetTransferRepository.findById(5L)).willReturn(Optional.of(transfer));
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 2_600_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+            assertThat(transfer.getToAmount()).isEqualTo(2_000L);
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 12L, 50_000L, 0L, 0L, "이체",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+            assertThat(transfer.getToAmount()).isNull();
+            // 금액 · 계좌가 바뀐 수정은 옛 기록을 걷고 새 값으로 다시 적는다.
+            verify(balanceHistoryService, org.mockito.Mockito.times(2)).removeTransfer(5L);
+            verify(balanceHistoryService, org.mockito.Mockito.times(2)).recordTransfer(transfer);
+        }
+    }
+
+    @Test
+    @DisplayName("getAssetBalanceTrend(M3) — USD 예수금 $100 + 보유 10,000,000원: balance 10,000,100(옛 뜻) · balanceInKrw 10,130,000")
+    void assetTrendCarriesKrwPoint() {
+        Asset usd = Asset.createAsset(user(USER_ID), "달러 증권", AssetType.INVESTMENT, 0L, "USD",
+            new java.math.BigDecimal("1300"), null, null, null, 0, YNType.Y, null, null, null, null);
+        ReflectionTestUtils.setField(usd, "rowId", 5L);
+        given(assetRepository.findById(5L)).willReturn(Optional.of(usd));
+        given(balanceHistoryService.balancesAtPoints(any(), any())).willReturn(java.util.Map.of(
+            5L, List.of(new AssetBalanceHistoryService.Split(100L, 10_000_000L))));
+
+        var points = sut.getAssetBalanceTrend(5L, USER_ID, 1);
+
+        assertThat(points).hasSize(1);
+        assertThat(points.get(0).balance()).isEqualTo(10_000_100L);
+        assertThat(points.get(0).balanceInKrw()).isEqualTo(10_130_000L);
+    }
+
+    // ── 통화 규칙(H2 · L7) ─────────────────────────────────────────
+
+    @Nested
+    @DisplayName("자산 통화 규칙 — 카드는 원화만, 외화 자산은 환율 > 0")
+    class CurrencyRules {
+
+        @Test
+        @DisplayName("validateCurrency — 원화는 무엇이든 통과, 외화 계좌는 환율 > 0, 카드는 외화 거절")
+        void rules() {
+            AssetServiceImpl.validateCurrency(AssetType.CREDIT_CARD, "KRW", null);
+            AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, null, null);
+            AssetServiceImpl.validateCurrency(AssetType.INVESTMENT, "USD", new java.math.BigDecimal("1300"));
+
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.INVESTMENT, "USD", null))
+                .isInstanceOf(InvalidValueException.class)
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, "EUR",
+                    java.math.BigDecimal.ZERO))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.BANK_ACCOUNT, "usd",
+                    new java.math.BigDecimal("-1")))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.CREDIT_CARD, "USD",
+                    new java.math.BigDecimal("1300")))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            assertThatThrownBy(() -> AssetServiceImpl.validateCurrency(AssetType.CHECK_CARD, "JPY",
+                    new java.math.BigDecimal("9.1")))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+        }
+
+        @Test
+        @DisplayName("createAsset — USD 신용카드는 저장 전에 거절")
+        void createRejectsForeignCard() {
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            var cmd = new AssetServiceDto.CreateAssetCommand(
+                USER_ID, "해외카드", AssetType.CREDIT_CARD, 0L, null, "USD",
+                new java.math.BigDecimal("1300"), null, null, null, 0,
+                YNType.Y, YNType.N, null, null, 15, null, null);
+
+            assertThatThrownBy(() -> sut.createAsset(cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            verify(assetRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("createAsset — 환율 없는 USD 통장은 거절")
+        void createRejectsForeignWithoutRate() {
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            var cmd = new AssetServiceDto.CreateAssetCommand(
+                USER_ID, "달러 통장", AssetType.BANK_ACCOUNT, 100L, null, "USD",
+                null, null, null, null, 0,
+                YNType.Y, YNType.N, null, null, null, null, null);
+
+            assertThatThrownBy(() -> sut.createAsset(cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED.getMessageKey());
+        }
+
+        @Test
+        @DisplayName("updateAsset — 원화 체크카드의 통화를 USD 로 바꾸면 거절, 카드 필드는 그대로")
+        void updateRejectsForeignCard() {
+            Asset card = Asset.createAsset(user(USER_ID), "체크", AssetType.CHECK_CARD, 0L, "KRW",
+                null, null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(card, "rowId", 7L);
+            given(assetRepository.findById(7L)).willReturn(Optional.of(card));
+            var cmd = new AssetServiceDto.UpdateAssetCommand(
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.set("USD"),
+                io.groo.damda.common.patch.Patch.set(new java.math.BigDecimal("1300")),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), io.groo.damda.common.patch.Patch.absent(),
+                io.groo.damda.common.patch.Patch.absent(), null);
+
+            assertThatThrownBy(() -> sut.updateAsset(7L, USER_ID, cmd))
+                .hasMessageContaining(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY.getMessageKey());
+            assertThat(card.getCurrency()).isEqualTo("KRW");
+        }
+    }
 }

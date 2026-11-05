@@ -102,6 +102,7 @@ public class AssetServiceImpl implements AssetService {
         if (command.assetType() == AssetType.CREDIT_CARD && command.paymentDay() == null) {
             throw new InvalidValueException(DeskErrorCode.ASSET_CARD_PAYMENT_DAY_REQUIRED);
         }
+        validateCurrency(command.assetType(), command.currency(), command.exchangeRate());
 
         CardCatalog cardCatalog = resolveCardCatalog(command.cardCatalogRowId());
         Asset paymentAsset = resolvePaymentAssetOrNone(command.paymentAssetRowId(), command.userRowId());
@@ -384,6 +385,10 @@ public class AssetServiceImpl implements AssetService {
                 && (command.paymentDay().present() || !wasCard)) {
             throw new InvalidValueException(DeskErrorCode.ASSET_CARD_PAYMENT_DAY_REQUIRED);
         }
+        // 통화 · 환율 규칙은 생성과 같다 — 실린 값과 지금 값을 합친 결과로 본다.
+        validateCurrency(effectiveType,
+            command.currency().orKeep(asset.getCurrency()),
+            command.exchangeRate().orKeep(asset.getExchangeRate()));
         // 결제일 변경은 다음 회차부터(D5) — 자산을 고치기 전에(옛 결제일을 들고 있을 때) 이력을 적는다.
         if (wasCard && effectiveType == AssetType.CREDIT_CARD && effectiveDay != null
                 && !effectiveDay.equals(asset.getPaymentDay())) {
@@ -1056,7 +1061,7 @@ public class AssetServiceImpl implements AssetService {
         for (Asset a : included) {
             // 외화 자산은 원화로 환산해 더한다 — 환산하지 않으면 USD 1,000 잔고가
             // 순자산에 1,000원으로 들어가 합계가 무너진다(원화 자산은 환산율 1이라 그대로).
-            long bal = a.balanceInKrw(totalOf(at, a));
+            long bal = krwOf(at, a);
             totalBalance += bal;
             // 부호가 아니라 <b>유형</b>으로 가른다(QA #21). 부호로 가르면 잔액이 음수인
             // 입출금(마이너스 통장)이 부채로 넘어가, 유형으로 가르는 자산 화면과 총자산이
@@ -1124,8 +1129,7 @@ public class AssetServiceImpl implements AssetService {
             long assets = 0, debt = 0;
             for (Asset a : included) {
                 List<AssetBalanceHistoryService.Split> seq = series.get(a.getRowId());
-                long bal = a.balanceInKrw(
-                    seq == null ? 0L : seq.get(i).total());
+                long bal = krwOf(a, seq == null ? AssetBalanceHistoryService.Split.ZERO : seq.get(i));
                 // 요약과 같은 규칙 — 부호로 가른다(선결제 카드가 두 번 깎이지 않게).
                 if (bal < 0) {
                     debt += -bal;
@@ -1172,8 +1176,11 @@ public class AssetServiceImpl implements AssetService {
 
         List<AssetServiceDto.AssetBalancePoint> points = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            long balance = i < series.size() ? series.get(i).total() : 0L;
-            points.add(new AssetServiceDto.AssetBalancePoint(weekStarts.get(i), balance));
+            AssetBalanceHistoryService.Split split =
+                i < series.size() ? series.get(i) : AssetBalanceHistoryService.Split.ZERO;
+            // balance 는 옛 클라이언트용으로 그대로(예수금 + 보유, 자산 통화 · 원화가 섞일 수 있다).
+            // 원화 점은 요약 · 순자산과 같은 한 식 — round(예수금 × 환율) + 보유 평가.
+            points.add(new AssetServiceDto.AssetBalancePoint(weekStarts.get(i), split.total(), krwOf(asset, split)));
         }
         return points;
     }
@@ -1184,19 +1191,27 @@ public class AssetServiceImpl implements AssetService {
      * <p>부채는 잔액이 음수라 그냥 더하면 빠진다. 유형으로 가르고 abs() 를 씌우면
      * 선결제한 카드(양수)가 자산에서 빠지고 부채로도 더해져 두 번 깎인다.
      *
-     * <p>외화 자산은 원화로 환산해 더한다(환산하지 않으면 통화 단위가 섞여 합계가 무의미해진다).
+     * <p>외화 자산은 원화로 환산해 더한다(예수금만 환율을 곱하고 보유 평가는 원화 그대로. 환산하지 않으면 통화 단위가 섞여 합계가 무의미해진다).
      */
     private long netWorthOf(List<Asset> included, Map<Long, AssetBalanceHistoryService.Split> balances) {
         long net = 0;
         for (Asset a : included) {
-            net += a.balanceInKrw(totalOf(balances, a));
+            net += krwOf(balances, a);
         }
         return net;
     }
 
-    /** 집계 결과에서 그 자산의 총잔액(예수금 + 평가금액). 이력이 없으면 0. */
-    private static long totalOf(Map<Long, AssetBalanceHistoryService.Split> balances, Asset a) {
-        return balances.getOrDefault(a.getRowId(), AssetBalanceHistoryService.Split.ZERO).total();
+    /** 집계 결과에서 그 자산의 원화 환산 합계. 이력이 없으면 0. */
+    private static long krwOf(Map<Long, AssetBalanceHistoryService.Split> balances, Asset a) {
+        return krwOf(a, balances.getOrDefault(a.getRowId(), AssetBalanceHistoryService.Split.ZERO));
+    }
+
+    /**
+     * 원화 환산 합계 = round(예수금 × 환율) + 보유 평가(원화). 요약·전월·추이·자산 응답이 모두 이 한 식을 쓴다.
+     * 총잔액에 환율을 곱하면 원화인 보유 평가에 환율이 이중으로 곱해진다.
+     */
+    private static long krwOf(Asset a, AssetBalanceHistoryService.Split split) {
+        return a.balanceInKrw(split.cash(), split.holding());
     }
 
     private List<Asset> includedAssets(Long userRowId) {
@@ -1238,6 +1253,9 @@ public class AssetServiceImpl implements AssetService {
             command.amount(), command.fee(), interest, command.description(), command.transferDate()
         );
 
+        // 금액 · 수수료 · 이자는 보내는 계좌 통화다. 통화가 다른 두 자산이면 받는 쪽 금액(받는 쪽 통화)을
+        // 박아 둔다 — 같으면 NULL(보낸 금액과 같음).
+        transfer.resolveToAmount(command.toAmount());
         if (command.autoSource() != null) {
             transfer.markAutoGenerated(command.autoSource());
         }
@@ -1246,11 +1264,8 @@ public class AssetServiceImpl implements AssetService {
         // 이자는 부채를 줄이지 않고 은행으로 나가는 비용 — 지출 거래로 따로 잡아
         // 카테고리·예산·통계에 들어가게 한다. 이체를 지우면 이 거래도 함께 지운다.
         if (transfer.hasInterest()) {
-            Expense interestExpense = Expense.createExpense(
-                user, null, fromAsset, ExpenseType.EXPENSE, interest,
-                command.description(), command.transferDate(),
-                null, "TRANSFER", null,
-                null, null, null); // 이자는 원화 — 외화 대출은 이체 자체가 환산된 뒤 들어온다
+            Expense interestExpense = interestExpenseOf(user, fromAsset, interest,
+                command.description(), command.transferDate(), null);
             interestExpense.markAutoGenerated("TRANSFER_INTEREST");
             expenseRepository.save(interestExpense);
             transfer.linkInterestExpense(interestExpense.getRowId());
@@ -1290,6 +1305,57 @@ public class AssetServiceImpl implements AssetService {
             case "CARD_REFUND" -> DeskErrorCode.ASSET_TRANSFER_CARD_REFUND_READONLY;
             default -> DeskErrorCode.ASSET_TRANSFER_AUTO_GENERATED_READONLY;
         };
+    }
+
+    /**
+     * 이체 이자 지출 — 이자는 보내는 계좌 통화라, 지출 금액(원화 칸)은 {@code 계좌.toKrw(이자)} 로 두고
+     * 외화 계좌면 원 통화 금액 · 통화 · 환율을 함께 남긴다. 원화 계좌는 지금과 같다(이자 그대로).
+     *
+     * @param keep 돈 칸이 그대로인 수정이면 옛 이자 지출 — 그 원화 금액 · 원 통화 정보를 그대로 쓴다
+     */
+    private static Expense interestExpenseOf(User user, Asset from, long interest, String description,
+                                             LocalDateTime at, Expense keep) {
+        long krw;
+        java.math.BigDecimal original = null;
+        String originalCurrency = null;
+        java.math.BigDecimal rate = null;
+        if (keep != null && keep.getAmount() != null) {
+            krw = keep.getAmount();
+            original = keep.getOriginalAmount();
+            originalCurrency = keep.getOriginalCurrency();
+            rate = keep.getExchangeRate();
+        } else {
+            krw = from.toKrw(interest);
+            if (from.isForeignCurrency()) {
+                original = java.math.BigDecimal.valueOf(interest);
+                originalCurrency = from.getCurrency();
+                rate = from.getExchangeRate();
+            }
+        }
+        // 잔액 이력은 남기지 않는다 — 이자는 출금액(amount)에 이미 들어 있다.
+        return Expense.createExpense(user, null, from, ExpenseType.EXPENSE, krw,
+            description, at, null, "TRANSFER", null, original, originalCurrency, rate);
+    }
+
+    /**
+     * 자산 통화 규칙 — 생성 · 수정이 같은 규칙을 쓴다.
+     * <ul>
+     *   <li>신용 · 체크카드는 원화만. 청구 · 상계 · 결제 · 이월이 모두 원화 장부라 카드 통화를 바꾸면
+     *       카드 흐름과 청구가 다른 단위가 되어 과납 환급이 없는 돈을 만든다. 해외 결제는 거래의 통화 칸으로.</li>
+     *   <li>외화 자산은 환율이 0 보다 커야 한다. 비우면 서버가 1 로 저장해 $1 이 1원으로 잡혔다.</li>
+     * </ul>
+     */
+    static void validateCurrency(AssetType type, String currency, java.math.BigDecimal exchangeRate) {
+        boolean foreign = currency != null && !currency.isBlank() && !"KRW".equalsIgnoreCase(currency.trim());
+        if (!foreign) {
+            return;
+        }
+        if (type == AssetType.CREDIT_CARD || type == AssetType.CHECK_CARD) {
+            throw new InvalidValueException(DeskErrorCode.ASSET_CARD_FOREIGN_CURRENCY);
+        }
+        if (exchangeRate == null || exchangeRate.signum() <= 0) {
+            throw new InvalidValueException(DeskErrorCode.ASSET_FOREIGN_RATE_REQUIRED);
+        }
     }
 
     /** 이체 양쪽 자산과 검증된 이자. 생성·수정이 같은 규칙을 쓴다. */
@@ -1341,27 +1407,44 @@ public class AssetServiceImpl implements AssetService {
         TransferParties parties = validateTransfer(command.userRowId(), command.fromAssetRowId(),
             command.toAssetRowId(), command.amount(), command.fee(), command.interestAmount());
 
+        // 돈 칸(두 계좌 · 금액 · 수수료 · 이자)이 그대로면 받은 금액 · 잔액 기록 · 이자 원화액을 만들 때 값
+        // 그대로 둔다. 다시 계산하면 그 사이 계좌 환율을 고친 외화 이체가 메모만 고쳐도 잔액이 바뀐다
+        // (원 → USD 1,300,000원: 1,000 → 환율 1,350 이면 963).
+        boolean moneySame = transfer.sameMoneyAs(parties.from(), parties.to(),
+            command.amount(), command.fee(), parties.interest());
+
         // ── 옛 값이 남긴 것들을 먼저 걷어낸다 ──────────────────────────
-        if (transfer.getInterestExpenseRowId() != null) {
-            expenseRepository.findById(transfer.getInterestExpenseRowId())
-                .ifPresent(Expense::deleteExpense);
+        Expense oldInterest = transfer.getInterestExpenseRowId() != null
+            ? expenseRepository.findById(transfer.getInterestExpenseRowId()).orElse(null) : null;
+        if (oldInterest != null) {
+            oldInterest.deleteExpense();
         }
-        balanceHistoryService.removeTransfer(transferId);
+        if (!moneySame) {
+            balanceHistoryService.removeTransfer(transferId);
+        }
 
         // ── 새 값으로 다시 만든다 ────────────────────────────────────
         transfer.updateTransfer(parties.from(), parties.to(), command.amount(), command.fee(),
             parties.interest(), command.description(), command.transferDate());
 
         if (transfer.hasInterest()) {
-            Expense interestExpense = Expense.createExpense(
-                transfer.getUser(), null, parties.from(), ExpenseType.EXPENSE, parties.interest(),
-                command.description(), command.transferDate(),
-                null, "TRANSFER", null, null, null, null);
+            Expense interestExpense = interestExpenseOf(transfer.getUser(), parties.from(), parties.interest(),
+                command.description(), command.transferDate(), moneySame ? oldInterest : null);
             interestExpense.markAutoGenerated("TRANSFER_INTEREST");
             expenseRepository.save(interestExpense);
             transfer.linkInterestExpense(interestExpense.getRowId());
         }
-        balanceHistoryService.recordTransfer(transfer);
+        if (moneySame && balanceHistoryService.retimeTransfer(transferId, command.transferDate())) {
+            // to_amount 는 updateTransfer 가 건드리지 않는다 — 저장값 그대로.
+            log.debug("이체 돈 칸 그대로 — 받은 금액 · 잔액 기록 유지: transferId={}", transferId);
+        } else {
+            if (moneySame) {
+                balanceHistoryService.removeTransfer(transferId); // 옮길 행이 없었다 — 새로 적는다
+            }
+            // 받는 금액을 새 값 · 새 계좌로 다시 정한다(지금 계좌 환율). 사용자 수정이라 덮어쓸 값은 없다.
+            transfer.resolveToAmount(null);
+            balanceHistoryService.recordTransfer(transfer);
+        }
 
         log.info("자산 이체 수정 완료: transferId={}", transferId);
         return AssetServiceDto.TransferInfo.from(transfer);

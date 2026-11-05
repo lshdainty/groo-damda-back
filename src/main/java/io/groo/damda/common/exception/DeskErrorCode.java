@@ -155,6 +155,10 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     ASSET_CARD_CARRYOVER_LOCKED("AST_034", "error.asset.card.carryover.locked", HttpStatus.BAD_REQUEST),
     // 결제 대기 청구분을 넣을 회차가 없다 — 이번 달 결제일이 지났거나 오늘, 또는 등록한 달이 아니다
     ASSET_CARD_DUE_CARRYOVER_CLOSED("AST_035", "error.asset.card.due.carryover.closed", HttpStatus.BAD_REQUEST),
+    // 외화 자산은 환율(통화 1단위당 원화)이 있어야 예수금 · 거래를 원화로 잴 수 있다 — 0 이하 · 비움은 거절
+    ASSET_FOREIGN_RATE_REQUIRED("AST_036", "error.asset.foreign.rate.required", HttpStatus.BAD_REQUEST),
+    // 신용 · 체크카드는 원화만 — 청구 · 상계 · 결제 장부가 원화다. 해외 결제는 거래의 통화 칸으로 적는다
+    ASSET_CARD_FOREIGN_CURRENCY("AST_037", "error.asset.card.foreign.currency", HttpStatus.BAD_REQUEST),
 
     // Asset
     ASSET_NOT_FOUND("ASSET_001", "error.notfound.asset", HttpStatus.NOT_FOUND),

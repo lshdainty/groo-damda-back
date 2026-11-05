@@ -106,6 +106,23 @@ public class AssetBalanceHistory extends AuditingFieldsWithIp {
         this.asset = asset;
     }
 
+    /**
+     * 옮기면서 금액도 새 자산 통화로 다시 적는다 — 체크카드 연결 계좌가 다른 통화로 바뀔 때.
+     * 원화 13,000 지출을 USD(1,300) 통장으로 옮기면 −13,000 이 아니라 −10 이어야 한다.
+     */
+    public void moveTo(Asset asset, long amount) {
+        this.asset = asset;
+        this.amount = amount;
+    }
+
+    /**
+     * 시각만 옮긴다 — 돈 칸(금액 · 통화 · 계좌)이 그대로인 수정. 금액은 만들 때 값 그대로 남아
+     * 그 사이 계좌 환율을 고쳤어도 지난 기록이 흔들리지 않는다.
+     */
+    public void retime(LocalDateTime effectiveAt) {
+        this.effectiveAt = effectiveAt;
+    }
+
     public void softDelete() {
         this.isDeleted = YNType.Y;
     }

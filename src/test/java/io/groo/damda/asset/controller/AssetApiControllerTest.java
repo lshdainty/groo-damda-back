@@ -76,6 +76,57 @@ class AssetApiControllerTest {
         verify(assetService).deleteAsset(eq(100L), eq(1L));
     }
 
+    @Test
+    @DisplayName("GET /assets · /asset/{id} — 응답에 원화 합계 balanceInKrw 가 실리고 기존 칸은 그대로")
+    void responseCarriesBalanceInKrw() throws Exception {
+        AssetServiceDto.AssetInfo usd = sampleAsset().withBalanceInKrw(135_000L);
+        given(assetService.getAssets(1L)).willReturn(List.of(usd));
+        given(assetService.getAsset(100L, 1L)).willReturn(usd);
+
+        mockMvc.perform(get("/api/v1/assets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.assets[0].balanceInKrw").value(135000))
+                .andExpect(jsonPath("$.data.assets[0].balance").value(50000))
+                .andExpect(jsonPath("$.data.assets[0].cashBalance").value(50000))
+                .andExpect(jsonPath("$.data.assets[0].holdingBalance").value(0));
+        mockMvc.perform(get("/api/v1/asset/{id}", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balanceInKrw").value(135000));
+    }
+
+    @Test
+    @DisplayName("GET /asset-transfers · POST /asset-transfer — 응답에 받는 금액 toAmount 가 실리고(NULL 이면 null) 기존 칸은 그대로")
+    void transferResponseCarriesToAmount() throws Exception {
+        java.time.LocalDateTime at = java.time.LocalDateTime.of(2026, 11, 6, 10, 0);
+        AssetServiceDto.TransferInfo cross = new AssetServiceDto.TransferInfo(
+                7L, 1L, 10L, "통장", 11L, "달러 계좌", 1_300_000L, 0L, 0L, 1_300_000L,
+                "환전", null, at, at, 1_000L);
+        AssetServiceDto.TransferInfo same = new AssetServiceDto.TransferInfo(
+                8L, 1L, 10L, "통장", 12L, "적금", 50_000L, 0L, 0L, 50_000L,
+                "이체", null, at, at, null);
+        given(assetService.getTransfers(eq(1L), any(), any())).willReturn(List.of(cross, same));
+        given(assetService.createTransfer(any())).willReturn(cross);
+
+        mockMvc.perform(get("/api/v1/asset-transfers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transfers[0].toAmount").value(1000))
+                .andExpect(jsonPath("$.data.transfers[0].amount").value(1300000))
+                .andExpect(jsonPath("$.data.transfers[0].principalAmount").value(1300000))
+                .andExpect(jsonPath("$.data.transfers[1].toAmount").doesNotExist());
+        mockMvc.perform(post("/api/v1/asset-transfer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fromAssetRowId\":10,\"toAssetRowId\":11,\"amount\":1300000,"
+                                + "\"transferDate\":\"2026-11-06T10:00:00\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.toAmount").value(1000));
+
+        // 사용자 요청은 받는 금액을 싣지 않는다 — 서버가 정한다.
+        ArgumentCaptor<AssetServiceDto.CreateTransferCommand> captor =
+                ArgumentCaptor.forClass(AssetServiceDto.CreateTransferCommand.class);
+        verify(assetService).createTransfer(captor.capture());
+        assertThat(captor.getValue().toAmount()).isNull();
+    }
+
     private AssetServiceDto.AssetInfo sampleAsset() {
         return new AssetServiceDto.AssetInfo(
                 100L, 1L, "주거래", AssetType.BANK_ACCOUNT, 50_000L, 50_000L, 0L, "KRW",

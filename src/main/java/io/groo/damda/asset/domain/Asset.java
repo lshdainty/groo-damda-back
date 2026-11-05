@@ -61,7 +61,8 @@ public class Asset extends AuditingFieldsWithIp {
      * 원화 환산율 (통화 1단위당 원화). KRW 는 1.
      *
      * <p>{@code currency} 만 있고 환산율이 없으면 USD 1,000 잔고가 순자산에 1,000원으로 더해진다.
-     * 합계·순자산은 {@code balance × exchangeRate} 로 환산한다.
+     * 합계·순자산은 {@code round(예수금 × exchangeRate) + 보유 평가(원화)} 로 환산한다 —
+     * 예수금(CASH)만 자산 통화이고 보유 평가(HOLDING)는 원화다. 보유 평가에는 환율을 곱하지 않는다.
      *
      * <p>수동 입력이다 — 토스 환율 API 는 구독(SECURITIES) 게이트 대상이라
      * 미구독자가 외화통장을 못 쓰게 된다. 구독자에게 자동으로 채워 주는 건 이 필드 위에 얹으면 된다.
@@ -230,17 +231,102 @@ public class Asset extends AuditingFieldsWithIp {
     }
 
     /**
-     * 원화 환산 잔액 — 합계·순자산은 이 값을 쓴다.
+     * 원화 환산 합계 — 합계·순자산·추이는 모두 이 값을 쓴다.
      *
-     * <p>USD 1,000 (환산율 1,400) → 1,400,000원. 원화 자산은 환산율이 1이라 그대로다.
+     * <p>{@code round(cash × 환산율) + holding}. 예수금(CASH)만 자산 통화이고, 보유 평가(HOLDING)는
+     * 원화로 적혀 있어(연동 평가 = 시세 × 종목 통화 환율, 수동 평가 = 원 단위 입력) 환율을 곱하지 않는다.
+     * 총잔액에 환율을 곱하면 보유 평가에 환율이 이중으로 곱해진다.
+     *
+     * <p>USD 예수금 100 · 환산율 1,300 · 보유 평가 10,000,000원 → 10,130,000원. 보유 없는 외화
+     * 예수금 100 → 130,000원. 원화 자산은 환산율이 1이라 cash + holding 그대로다.
      */
-    public long balanceInKrw(long rawBalance) {
-        if (exchangeRate == null || BigDecimal.ONE.compareTo(exchangeRate) == 0) {
-            return rawBalance;
+    public long balanceInKrw(long cash, long holding) {
+        return toKrw(cash) + holding;
+    }
+
+    /** 환산이 필요 없는가 — 환율이 없거나 0 이하(정규화 전 값 방어)거나 정확히 1. */
+    private boolean isIdentityRate() {
+        return exchangeRate == null || exchangeRate.signum() <= 0
+            || BigDecimal.ONE.compareTo(exchangeRate) == 0;
+    }
+
+    /**
+     * 자산 통화 금액 → 원화. {@code round(units × 환산율, HALF_UP)}, 원 단위 정수.
+     * 원화 자산 · 환율 없음은 그대로.
+     */
+    public long toKrw(long units) {
+        if (isIdentityRate()) {
+            return units;
         }
-        return exchangeRate.multiply(BigDecimal.valueOf(rawBalance))
+        return exchangeRate.multiply(BigDecimal.valueOf(units))
             .setScale(0, java.math.RoundingMode.HALF_UP)
             .longValueExact();
+    }
+
+    /**
+     * 원화 금액 → 이 자산 통화 금액(정수 1단위). {@code round(krw ÷ 환산율, HALF_UP)}.
+     *
+     * <p>매매 대금 · 수입지출 금액 · 이체 금액은 원화로 들어온다(웹 · 앱 칸이 "원"). 외화 자산의
+     * 예수금(CASH)은 자산 통화로 쌓이므로, 잔액 이력에 적기 전에 이 함수 하나로 나눈다 — 매매 ·
+     * 수입지출 · 이체가 같은 식을 쓴다. 원화 자산 · 환율 없음(1)은 그대로라 지금 결과와 같다.
+     *
+     * <p>예: USD · 1,300 에서 1,300,000원 → 1,000. 1,000,000원 → 769.23 → 769.
+     * 부호는 그대로 따른다(−1,300,000원 → −1,000).
+     */
+    public long krwToAssetCurrency(long krw) {
+        if (isIdentityRate()) {
+            return krw;
+        }
+        return BigDecimal.valueOf(krw)
+            .divide(exchangeRate, 0, java.math.RoundingMode.HALF_UP)
+            .longValueExact();
+    }
+
+    /**
+     * 원화로 적힌 거래 금액을 이 자산 통화로 — 거래가 이미 이 자산 통화의 원 통화 금액을 들고 있으면
+     * 그 값을 쓴다(이중 환산 방지).
+     *
+     * <p>USD 계좌의 $5 지출은 {@code originalAmount = 5 · originalCurrency = USD · amount = 6,500원}
+     * 으로 온다. 원화 6,500 을 계좌 환율로 다시 나누면 거래 환율과 계좌 환율이 다를 때 $5 가 아닌
+     * 값이 될 수 있어, 통화가 같으면 원 통화 금액(정수로 HALF_UP)을 그대로 쓴다. 통화가 다르면
+     * (원화 결제 · EUR 결제를 USD 계좌로) 원화 금액 ÷ 계좌 환율이다.
+     */
+    public long expenseAmountInAssetCurrency(long krw, BigDecimal originalAmount, String originalCurrency) {
+        if (!isForeignCurrency()) {
+            return krw;
+        }
+        if (originalAmount != null && originalCurrency != null
+                && originalCurrency.equalsIgnoreCase(currency)) {
+            return originalAmount.setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+        return krwToAssetCurrency(krw);
+    }
+
+    /**
+     * 이 자산 통화 금액 → 다른 자산 통화 금액. 원화를 거쳐 {@code round(units × 이 환율 ÷ 상대 환율, HALF_UP)}
+     * — 반올림은 마지막 <b>한 번</b>뿐이다. 통화가 같으면 그대로(두 계좌 환율이 달라도 같은 통화는 같은 값).
+     *
+     * <p>예: USD(1,300) $1,000 → EUR(1,450) = 1,300,000 ÷ 1,450 = 896.55 → €897.
+     * 원화 1,300,000 → USD(1,300) = $1,000. USD $1,000 → 원화 = 1,300,000.
+     */
+    public long convertTo(long units, Asset target) {
+        if (target == null || sameCurrencyAs(target)) {
+            return units;
+        }
+        BigDecimal krw = effectiveRate().multiply(BigDecimal.valueOf(units));
+        return krw.divide(target.effectiveRate(), 0, java.math.RoundingMode.HALF_UP).longValueExact();
+    }
+
+    /** 환산에 쓰는 환율 — 원화 · 환율 없음 · 0 이하는 1. */
+    private BigDecimal effectiveRate() {
+        return isIdentityRate() ? BigDecimal.ONE : exchangeRate;
+    }
+
+    /** 두 자산의 통화가 같은가 — 비어 있으면 원화로 본다. */
+    public boolean sameCurrencyAs(Asset other) {
+        String a = currency == null || currency.isBlank() ? "KRW" : currency;
+        String b = other == null || other.currency == null || other.currency.isBlank() ? "KRW" : other.currency;
+        return a.equalsIgnoreCase(b);
     }
 
     /**

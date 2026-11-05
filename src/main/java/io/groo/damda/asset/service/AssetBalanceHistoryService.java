@@ -14,6 +14,7 @@ import io.groo.core.time.UserClock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.TreeMap;
 import java.util.ArrayList;
@@ -46,6 +47,8 @@ public class AssetBalanceHistoryService {
     private final AssetBalanceHistoryRepository repository;
     private final UserClock userClock;
     private final AssetRepository assetRepository;
+    /** 체크카드 연결 계좌가 다른 통화로 바뀔 때 옛 지출의 원화 금액을 다시 읽는다(외화가 낄 때만). */
+    private final io.groo.damda.expense.repository.ExpenseRepository expenseRepository;
 
     // === 쓰기 ===
 
@@ -161,6 +164,30 @@ public class AssetBalanceHistoryService {
     }
 
     /**
+     * 수입/지출 거래 — 금액이 <b>원화</b>(expense.amount)로 들어오는 경로. 잔액이 움직이는 자산의 통화로
+     * 바꿔 적는다.
+     *
+     * <p>외화 계좌(USD 통장 · 외화 투자 계좌 예수금)는 자산 통화로 쌓이므로 원화를 그대로 적으면
+     * $5 지출(6,500원)이 −$6,500 으로 남는다. 거래가 그 계좌 통화의 원 통화 금액을 들고 있으면 그
+     * 값을, 아니면 원화 ÷ 계좌 환율을 쓴다({@link Asset#expenseAmountInAssetCurrency}). 원화 계좌는
+     * {@link #recordExpense(Asset, Long, ExpenseType, Long, LocalDateTime)} 와 결과가 같다.
+     *
+     * <p>체크카드면 연결 계좌의 통화 · 환율로 바꾼다 — 실제로 빠지는 곳이 그 계좌다.
+     */
+    public void recordExpenseKrw(Asset asset, Long expenseId, ExpenseType type, Long krwAmount,
+                                 BigDecimal originalAmount, String originalCurrency,
+                                 LocalDateTime effectiveAt) {
+        if (asset == null || type == null || krwAmount == null) {
+            return;
+        }
+        Asset target = balanceTargetOf(asset);
+        long units = target.expenseAmountInAssetCurrency(krwAmount, originalAmount, originalCurrency);
+        long signed = (type == ExpenseType.INCOME) ? units : -units;
+        repository.save(AssetBalanceHistory.of(
+            asset.getUser(), target, BalanceSourceType.EXPENSE, expenseId, signed, effectiveAt));
+    }
+
+    /**
      * 잔액이 실제로 움직이는 자산.
      *
      * <p>체크카드는 계좌에 1:1 로 물린 결제 수단이라 자체 잔액이 없다 — 긁는 즉시 연결 계좌에서
@@ -200,9 +227,96 @@ public class AssetBalanceHistoryService {
         affected.add(card);
         affected.add(newAccount);
         for (AssetBalanceHistory h : rows) {
-            affected.add(h.getAsset()); // 옮기기 전 소속 — 여기서도 빠져야 한다
-            h.moveTo(newAccount);
+            Asset before = h.getAsset();
+            affected.add(before); // 옮기기 전 소속 — 여기서도 빠져야 한다
+            // 원화끼리면 금액 그대로 옮긴다(지금 동작). 외화가 끼면 옛 계좌 통화로 적힌 금액을 그대로
+            // 옮기면 단위가 섞이므로, 거래의 원화 금액(원 통화 금액)을 새 계좌 통화로 다시 바꾼다.
+            boolean foreign = newAccount.isForeignCurrency()
+                || (before != null && before.isForeignCurrency());
+            io.groo.damda.expense.domain.Expense e = foreign && expenseRepository != null
+                && h.getSourceRowId() != null
+                ? expenseRepository.findById(h.getSourceRowId()).orElse(null) : null;
+            if (e == null || e.getAmount() == null) {
+                h.moveTo(newAccount);
+                continue;
+            }
+            long units = newAccount.expenseAmountInAssetCurrency(
+                e.getAmount(), e.getOriginalAmount(), e.getOriginalCurrency());
+            h.moveTo(newAccount, h.getAmount() != null && h.getAmount() < 0 ? -units : units);
         }
+    }
+
+    /**
+     * 돈 칸(금액 · 통화 · 계좌 · 유형)이 그대로인 거래 수정 — 저장된 증감을 그대로 두고 시각만 옮긴다.
+     *
+     * <p>지웠다 다시 적으면 그 사이 계좌 환율을 고친 외화 계좌에서 메모만 고쳐도 잔액이 바뀐다
+     * (USD 1,300 → 1,400: 13,000원 지출이 −$10 → −$9). 그래서 행을 남기고 시각만 고친다.
+     *
+     * @return 옮길 행이 있었고 모두 지금 잔액 대상 자산의 것이면 true. 아니면 아무것도 안 하고 false —
+     *         호출자가 지웠다 다시 적는다
+     */
+    public boolean retimeExpense(Asset asset, Long expenseId, LocalDateTime effectiveAt) {
+        if (asset == null || expenseId == null) {
+            return false;
+        }
+        Asset target = balanceTargetOf(asset);
+        List<AssetBalanceHistory> rows =
+            repository.findActiveBySource(BalanceSourceType.EXPENSE, expenseId, YNType.N);
+        if (rows.isEmpty() || !rows.stream().allMatch(h -> sameRow(h.getAsset(), target))) {
+            return false;
+        }
+        rows.forEach(h -> h.retime(effectiveAt));
+        return true;
+    }
+
+    /**
+     * 환불 취소 — 환불 때 걷은 증감을 그대로 되살린다(돈 칸은 환불 동안 잠겨 있다).
+     *
+     * <p>걷은 행 중 가장 나중 것(row_id 최대)이 환불 직전의 기록이다. 그 행이 지금 잔액 대상 자산의
+     * 것이면 같은 금액으로 다시 적고, 아니면(체크카드 연결 변경 등) 지금 환율로 새로 적는다.
+     */
+    public void restoreExpense(Asset asset, Long expenseId, ExpenseType type, Long krwAmount,
+                               BigDecimal originalAmount, String originalCurrency,
+                               LocalDateTime effectiveAt) {
+        if (asset == null || type == null || krwAmount == null) {
+            return;
+        }
+        Asset target = balanceTargetOf(asset);
+        AssetBalanceHistory last = repository
+            .findActiveBySource(BalanceSourceType.EXPENSE, expenseId, YNType.Y).stream()
+            .filter(h -> h.getRowId() != null)
+            .max(java.util.Comparator.comparing(AssetBalanceHistory::getRowId))
+            .orElse(null);
+        long expectedSign = type == ExpenseType.INCOME ? 1L : -1L;
+        if (last != null && sameRow(last.getAsset(), target) && last.getAmount() != null
+                && Long.signum(last.getAmount()) == expectedSign) {
+            repository.save(AssetBalanceHistory.of(
+                asset.getUser(), target, BalanceSourceType.EXPENSE, expenseId, last.getAmount(), effectiveAt));
+            return;
+        }
+        recordExpenseKrw(asset, expenseId, type, krwAmount, originalAmount, originalCurrency, effectiveAt);
+    }
+
+    /**
+     * 돈 칸이 그대로인 이체 수정 — 두 행의 금액을 그대로 두고 시각만 옮긴다(H1).
+     *
+     * @return 옮길 행이 있었으면 true
+     */
+    public boolean retimeTransfer(Long transferId, LocalDateTime effectiveAt) {
+        List<AssetBalanceHistory> rows =
+            repository.findActiveBySource(BalanceSourceType.TRANSFER, transferId, YNType.N);
+        if (rows.isEmpty()) {
+            return false;
+        }
+        rows.forEach(h -> h.retime(effectiveAt));
+        return true;
+    }
+
+    private static boolean sameRow(Asset a, Asset b) {
+        if (a == b) {
+            return true;
+        }
+        return a != null && b != null && a.getRowId() != null && a.getRowId().equals(b.getRowId());
     }
 
     /**
@@ -280,19 +394,24 @@ public class AssetBalanceHistoryService {
         softDeleteAndRecompute(repository.findActiveBySource(BalanceSourceType.EXPENSE, expenseId, YNType.N));
     }
 
-    /** 자산 이체 — 출금자산 -(amount+fee), 입금자산 +amount 의 flow 두 row. */
+    /**
+     * 자산 이체 — 출금자산 −(amount+fee), 입금자산 +원금 의 flow 두 row. 각 자산 통화로 적는다.
+     *
+     * <p>금액은 보내는 계좌 통화라 출금 쪽은 그대로({@link AssetTransfer#fromBalanceDelta}), 받는 쪽은
+     * to_amount 가 있으면 그것(통화가 다름), NULL 이면 보낸 금액({@link AssetTransfer#toBalanceDelta}).
+     * 원화끼리는 지금과 같다.
+     */
     public void recordTransfer(AssetTransfer transfer) {
         // transfer_date 가 DATETIME 이라 실제 시각 그대로 — 지출(expense_date)과 같은 기준.
         LocalDateTime effectiveAt = transfer.getTransferDate();
-        long fee = transfer.getFee() != null ? transfer.getFee() : 0L;
         repository.save(AssetBalanceHistory.of(
             transfer.getUser(), transfer.getFromAsset(), BalanceSourceType.TRANSFER, transfer.getRowId(),
-            -(transfer.getAmount() + fee), effectiveAt));
+            transfer.fromBalanceDelta(), effectiveAt));
         // 입금 자산에는 원금만 — 이자는 부채를 줄이지 않고 은행으로 나가는 비용이라
         // 별도 지출 거래로 잡힌다(대출 상환에서만 0 보다 크다).
         repository.save(AssetBalanceHistory.of(
             transfer.getUser(), transfer.getToAsset(), BalanceSourceType.TRANSFER, transfer.getRowId(),
-            transfer.principalAmount(), effectiveAt));
+            transfer.toBalanceDelta(), effectiveAt));
     }
 
     /** 이체 삭제 시 양쪽 자산의 이력 row 를 soft-delete 후 영향 자산 재산정. */

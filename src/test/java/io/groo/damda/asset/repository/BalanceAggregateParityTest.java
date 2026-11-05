@@ -65,7 +65,7 @@ class BalanceAggregateParityTest {
 
     @BeforeEach
     void setUp() {
-        service = new AssetBalanceHistoryService(repository, null, null);
+        service = new AssetBalanceHistoryService(repository, null, null, null);
         user = em.persist(User.createUser(null, "tester", "테스터", "tester@porest.com"));
         asset = persistAsset("증권계좌");
         other = persistAsset("급여통장");

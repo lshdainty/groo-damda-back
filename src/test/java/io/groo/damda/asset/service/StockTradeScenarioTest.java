@@ -70,10 +70,13 @@ class StockTradeScenarioTest {
     @Mock private AssetService assetService;
 
     /** 예수금 충당 이체를 흉내 낸다 — 통장은 빠지고 예수금은 들어온다. */
-    private record Funding(long rowId, long amount) {}
+    /** amount = 통장에서 나간 원화, credited = 예수금에 들어온 자산 통화 금액(to_amount 가 있으면 그 값). */
+    private record Funding(long rowId, long amount, long credited) {}
 
     private final List<Funding> transfers = new ArrayList<>();
     private final List<Long> deletedTransferIds = new ArrayList<>();
+    /** recordTrade 가 거래마다 예수금에 남긴 flow — 취소는 이 값을 그대로 되돌린다. */
+    private final java.util.Map<Long, Long> recordedCash = new java.util.HashMap<>();
     // 시장코드 확정은 mock 기본값(null) — 확정 못 한 경우와 같다.
     @Mock private io.groo.damda.stock.service.StockMasterResolver stockMasterResolver;
     @InjectMocks private AssetTradeServiceImpl sut;
@@ -161,21 +164,26 @@ class StockTradeScenarioTest {
         // 다음 매수의 예수금 검사가 현실처럼 동작한다.
         willAnswer(inv -> {
             Asset target = inv.getArgument(0);
+            Long tradeId = inv.getArgument(1);
             long delta = inv.getArgument(2);
             if (BANK_ID == target.getRowId()) {
                 bankFlow += delta;
             } else {
                 cash += delta;
+                recordedCash.put(tradeId, delta);
             }
             return null;
         }).given(balanceHistoryService).recordTrade(any(), any(), any(Long.class), any());
-        // 취소는 그 거래가 남긴 flow 를 되돌린다.
+        // 취소는 그 거래가 <b>저장한</b> flow 를 되돌린다 — 실제 removeTrade 가 그 행을 soft-delete 하듯,
+        // 다시 계산하지 않고 적어 둔 값을 뺀다.
         willAnswer(inv -> {
             Long id = inv.getArgument(0);
             // 매매 flow 는 결제 계좌와 무관하게 언제나 예수금이다 — 결제 계좌는 이체로
             // 예수금을 채울 뿐이고, 그 이체는 deleteTransfer 가 따로 되돌린다.
-            trades.stream().filter(t -> id.equals(t.getRowId())).findFirst()
-                .ifPresent(t -> cash -= t.cashDelta());
+            Long stored = recordedCash.remove(id);
+            if (stored != null) {
+                cash -= stored;
+            }
             return null;
         }).given(balanceHistoryService).removeTrade(any());
 
@@ -189,9 +197,10 @@ class StockTradeScenarioTest {
         willAnswer(inv -> {
             AssetServiceDto.CreateTransferCommand c = inv.getArgument(0);
             long id = 900L + transfers.size();
-            transfers.add(new Funding(id, c.amount()));
+            long credited = c.toAmount() != null ? c.toAmount() : c.amount();
+            transfers.add(new Funding(id, c.amount(), credited));
             bankFlow -= c.amount();
-            cash += c.amount();
+            cash += credited;
             AssetServiceDto.TransferInfo info = org.mockito.Mockito.mock(AssetServiceDto.TransferInfo.class);
             org.mockito.Mockito.lenient().when(info.rowId()).thenReturn(id);
             return info;
@@ -202,7 +211,7 @@ class StockTradeScenarioTest {
             deletedTransferIds.add(id);
             transfers.stream().filter(t -> id.equals(t.rowId())).findFirst().ifPresent(t -> {
                 bankFlow += t.amount();
-                cash -= t.amount();
+                cash -= t.credited();
             });
             return null;
         }).given(assetService).deleteTransfer(any(), any());
@@ -983,6 +992,207 @@ class StockTradeScenarioTest {
                 .isInstanceOf(InvalidValueException.class);
 
             assertThat(holdings).isEmpty();
+        }
+    }
+
+    // === 외화 계좌 =============================================================
+
+    /**
+     * USD 증권계좌(환율 1,300) — 대금 · 수수료는 원화로 들어오고, 예수금은 달러로 움직인다.
+     * 원가(totalCost) · 보유 평가(HOLDING) · 실현손익은 원화 그대로다.
+     */
+    @Nested
+    @DisplayName("외화(USD · 1,300) 증권계좌 — 예수금 증감 = round(원화 ÷ 환율)")
+    class ForeignAccount {
+
+        private Asset usd;
+
+        @BeforeEach
+        void usdAccount() {
+            usd = Asset.createAsset(user, "달러 계좌", AssetType.INVESTMENT, 0L, "USD",
+                new BigDecimal("1300"), null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(usd, "rowId", ASSET_ID);
+            given(assetRepository.findById(ASSET_ID)).willReturn(Optional.of(usd));
+        }
+
+        private CreateTradeCommand usdTrade(TradeType type, String qty, long amount, long fee, Long settlement) {
+            return new CreateTradeCommand(USER_ID, ASSET_ID, type, HoldingType.STOCK,
+                null, "AAPL", true, new BigDecimal(qty), amount, fee,
+                LocalDateTime.of(2026, 8, 3, 10, 0), null, settlement);
+        }
+
+        @Test
+        @DisplayName("회귀 — 예수금 $2,000 에서 1,300,000원 매수 → 예수금 $1,000 · 보유 1,300,000원 · 원화 합계 2,600,000")
+        void buyKeepsNetWorth() {
+            deposit(2_000L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, null));
+
+            assertThat(cash).isEqualTo(1_000L);
+            assertThat(holdingValuation).isEqualTo(1_300_000L);   // 원가 = 원화
+            assertThat(usd.balanceInKrw(cash, holdingValuation)).isEqualTo(2_600_000L);
+            // 매수 전과 같다 — 돈이 자산 안에서 자리만 옮겼다(2,000 × 1,300).
+            assertThat(usd.balanceInKrw(2_000L, 0L)).isEqualTo(2_600_000L);
+        }
+
+        @Test
+        @DisplayName("매수 수수료는 합친 뒤 한 번만 나눈다 — 1,000,000 + 5,000 = 1,005,000 ÷ 1,300 = 773.08 → $773")
+        void buyWithFeeRounds() {
+            deposit(2_000L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_000_000L, 5_000L, null));
+
+            assertThat(cash).isEqualTo(2_000L - 773L);
+            AssetHolding h = holdings.get(0);
+            assertThat(h.getTotalCost()).isEqualTo(1_005_000L);   // 원가는 원화 그대로
+        }
+
+        @Test
+        @DisplayName("매도 — (1,300,000 − 1,000) ÷ 1,300 = 999.23 → +$999, 실현손익은 원화(−1,000원)")
+        void sellAddsDollars() {
+            deposit(2_000L);
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, null));
+            assertThat(cash).isEqualTo(1_000L);
+
+            sut.createTrade(usdTrade(TradeType.SELL, "10", 1_300_000L, 1_000L, null));
+
+            assertThat(cash).isEqualTo(1_999L);
+            AssetTrade sell = trades.get(1);
+            assertThat(sell.getRealizedPl()).isEqualTo(-1_000L);
+        }
+
+        @Test
+        @DisplayName("HALF_UP — 650원 매도 → +$1(0.5 올림), 1,950원 매수 → −$2(1.5 올림)")
+        void halfUp() {
+            assertThat(AssetTrade.cashDeltaOf(usd, TradeType.SELL, 650L, 0L)).isEqualTo(1L);
+            assertThat(AssetTrade.cashDeltaOf(usd, TradeType.BUY, 1_950L, 0L)).isEqualTo(-2L);
+            assertThat(AssetTrade.cashDeltaOf(usd, TradeType.OPENING, 1_950L, 0L)).isZero();
+            // 원화 계좌는 지금 식 그대로
+            assertThat(AssetTrade.cashDeltaOf(account, TradeType.BUY, 1_950L, 50L)).isEqualTo(-2_000L);
+            assertThat(AssetTrade.cashDeltaOf(account, TradeType.SELL, 1_950L, 50L)).isEqualTo(1_900L);
+        }
+
+        @Test
+        @DisplayName("취소는 저장한 달러 증감을 되돌린다 — 그 사이 환율을 1,400 으로 고쳐도 예수금이 매수 전 $2,000 으로")
+        void deleteRestoresStoredCash() {
+            deposit(2_000L);
+            var info = sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, null));
+            assertThat(cash).isEqualTo(1_000L);
+            // 계좌 환율을 고친다 — 다시 계산하면 1,300,000 ÷ 1,400 = 929 를 되돌려 $1,929 가 된다.
+            ReflectionTestUtils.setField(usd, "exchangeRate", new BigDecimal("1400"));
+
+            sut.deleteTrade(info.rowId(), USER_ID);
+
+            assertThat(cash).isEqualTo(2_000L);
+            assertThat(recordedCash).isEmpty();
+        }
+
+        @Test
+        @DisplayName("원화 통장 결제 — 예수금 $100 에서 1,300,000원 매수: 통장 −1,170,000원 · 예수금 +$900 → $0")
+        void settlementFromKrwBank() {
+            deposit(100L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(transfers).hasSize(1);
+            assertThat(transfers.get(0).amount()).isEqualTo(1_170_000L);   // 900 × 1,300 원화
+            assertThat(transfers.get(0).credited()).isEqualTo(900L);       // 받는 금액을 못 박는다
+            assertThat(bankFlow).isEqualTo(-1_170_000L);
+            assertThat(cash).isZero();
+        }
+
+        /** 결제 계좌를 다른 통화 · 환율의 통장으로 바꿔 끼운다(같은 BANK_ID). */
+        private Asset bankIn(String currency, String rate) {
+            Asset b = Asset.createAsset(user, currency + " 통장", AssetType.BANK_ACCOUNT, 0L, currency,
+                new BigDecimal(rate), null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(b, "rowId", BANK_ID);
+            given(assetRepository.findById(BANK_ID)).willReturn(Optional.of(b));
+            return b;
+        }
+
+        @Test
+        @DisplayName("같은 통화 충당 — USD 통장(1,310) → USD 계좌(1,300): 부족분 $900 그대로 보내고 받는다(to_amount 없음)")
+        void settlementSameCurrency() {
+            bankIn("USD", "1310");
+            deposit(100L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(transfers).hasSize(1);
+            assertThat(transfers.get(0).amount()).isEqualTo(900L);    // 보내는 계좌 통화(USD)
+            assertThat(transfers.get(0).credited()).isEqualTo(900L);  // NULL → 보낸 만큼
+            assertThat(bankFlow).isEqualTo(-900L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("다른 외화 충당 — EUR 통장(1,450) → USD 계좌: 900 × 1,300 ÷ 1,450 = 806.9 → €807 보내고 $900 받는다")
+        void settlementFromEur() {
+            bankIn("EUR", "1450");
+            deposit(100L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(transfers.get(0).amount()).isEqualTo(807L);
+            assertThat(transfers.get(0).credited()).isEqualTo(900L);
+            assertThat(bankFlow).isEqualTo(-807L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("환율 1 미만 같은 통화 충당(VND 0.055) — 부족분을 환산하지 않아 1단위도 새지 않는다")
+        void settlementLowRateSameCurrency() {
+            Asset vnd = Asset.createAsset(user, "VND 계좌", AssetType.INVESTMENT, 0L, "VND",
+                new BigDecimal("0.055"), null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(vnd, "rowId", ASSET_ID);
+            given(assetRepository.findById(ASSET_ID)).willReturn(Optional.of(vnd));
+            bankIn("VND", "0.055");
+
+            // 55원 → round(55 ÷ 0.055) = 1,000 VND 매수, 예수금 0 → 부족분 1,000 VND
+            sut.createTrade(usdTrade(TradeType.BUY, "1", 55L, 0L, BANK_ID));
+
+            assertThat(transfers.get(0).amount()).isEqualTo(1_000L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("미리보기 — 저장과 같은 식: 예수금 변동 −$1,000 · 거래 후 $0 · 통장에서 1,170,000원 · 통화 USD / KRW")
+        void previewMatches() {
+            deposit(100L);
+
+            var preview = sut.previewTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(preview.cashDelta()).isEqualTo(-1_000L);
+            assertThat(preview.cashAfter()).isZero();
+            assertThat(preview.fundingAmount()).isEqualTo(1_170_000L);
+            assertThat(preview.cashCurrency()).isEqualTo("USD");
+            assertThat(preview.fundingCurrency()).isEqualTo("KRW");
+        }
+
+        @Test
+        @DisplayName("미리보기 EUR 통장 — 결제 계좌를 실제로 읽어 €807 · EUR (원화로 가정하면 1,170,000 이 나온다)")
+        void previewReadsSettlementAccount() {
+            bankIn("EUR", "1450");
+            deposit(100L);
+
+            var preview = sut.previewTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(preview.fundingAmount()).isEqualTo(807L);
+            assertThat(preview.fundingCurrency()).isEqualTo("EUR");
+            assertThat(preview.cashAfter()).isZero();
+        }
+
+        @Test
+        @DisplayName("미리보기 결제 계좌 없음 — 예수금 $100 에서 1,300,000원 매수 → 거래 후 −$900")
+        void previewWithoutSettlement() {
+            deposit(100L);
+
+            var preview = sut.previewTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, null));
+
+            assertThat(preview.cashDelta()).isEqualTo(-1_000L);
+            assertThat(preview.cashAfter()).isEqualTo(-900L);
+            assertThat(preview.fundingAmount()).isZero();
+            assertThat(preview.fundingCurrency()).isNull();
         }
     }
 }

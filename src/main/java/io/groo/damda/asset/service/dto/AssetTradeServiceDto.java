@@ -78,11 +78,15 @@ public final class AssetTradeServiceDto {
         Long soldCost,
         /** 실현손익 (매도 전용, 매수면 null) */
         Long realizedPl,
-        /** 예수금 변동 — 매수 -(대금+수수료), 매도 대금-수수료 */
+        /** 예수금 변동(<b>자산 통화</b>) — 매수 −round((대금+수수료) ÷ 환율), 매도 +round((대금−수수료) ÷ 환율). 원화 계좌는 원화 그대로 */
         Long cashDelta,
-        /** 거래 후 예수금 */
+        /** 거래 후 예수금(자산 통화) */
         Long cashAfter,
-        /** 결제 계좌에서 끌어올 부족분 (없으면 0) */
-        Long fundingAmount
+        /** 결제 계좌에서 나갈 금액(<b>결제 계좌 통화</b> — 원화 통장이면 원화, 없으면 0) */
+        Long fundingAmount,
+        /** cashDelta · cashAfter 의 통화 — 투자 계좌 통화(예: USD). soldCost · realizedPl 은 늘 원화 */
+        String cashCurrency,
+        /** fundingAmount 의 통화 — 결제 계좌 통화. 결제 계좌를 안 골랐으면 null */
+        String fundingCurrency
     ) {}
 }

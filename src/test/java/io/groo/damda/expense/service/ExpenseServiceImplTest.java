@@ -418,7 +418,48 @@ class ExpenseServiceImplTest {
 
         InOrder ord = inOrder(balanceHistoryService);
         ord.verify(balanceHistoryService).removeExpense(5L);                       // 먼저 기존 flow 제거
-        ord.verify(balanceHistoryService).recordExpense(any(), eq(5L), any(), any(), any()); // 그 다음 재적재
+        ord.verify(balanceHistoryService).recordExpenseKrw(any(), eq(5L), any(), any(), any(), any(), any()); // 그 다음 재적재
+    }
+
+    @Test
+    @DisplayName("updateExpense 돈 칸 그대로(M1) — 저장된 증감의 시각만 옮기고 지웠다 다시 적지 않는다")
+    void updateExpenseMoneySameRetimes() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        Expense expense = Expense.createExpense(u, leaf, null, ExpenseType.EXPENSE, 10_000L,
+                "x", LocalDateTime.of(2026, 6, 1, 12, 0), null, null, null,
+            null, null, null);
+        ReflectionTestUtils.setField(expense, "rowId", 5L);
+        given(expenseRepository.findById(5L)).willReturn(Optional.of(expense));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        given(balanceHistoryService.retimeExpense(any(), eq(5L), any())).willReturn(true);
+
+        sut.updateExpense(5L, USER_ID, updateCmd(10L));   // 금액 10,000 · 유형 · 계좌 그대로, 메모만
+
+        verify(balanceHistoryService).retimeExpense(any(), eq(5L), eq(LocalDateTime.of(2026, 6, 1, 12, 0)));
+        verify(balanceHistoryService, never()).removeExpense(5L);
+        verify(balanceHistoryService, never()).recordExpenseKrw(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("updateExpense 금액이 바뀌면 — 시각만 옮기지 않고 지웠다 다시 적는다")
+    void updateExpenseMoneyChangedRebuilds() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        Expense expense = Expense.createExpense(u, leaf, null, ExpenseType.EXPENSE, 9_000L,
+                "x", LocalDateTime.of(2026, 6, 1, 12, 0), null, null, null,
+            null, null, null);
+        ReflectionTestUtils.setField(expense, "rowId", 5L);
+        given(expenseRepository.findById(5L)).willReturn(Optional.of(expense));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+
+        sut.updateExpense(5L, USER_ID, updateCmd(10L));   // 9,000 → 10,000
+
+        verify(balanceHistoryService, never()).retimeExpense(any(), any(), any());
+        verify(balanceHistoryService).removeExpense(5L);
+        verify(balanceHistoryService).recordExpenseKrw(any(), eq(5L), any(), eq(10_000L), any(), any(), any());
     }
 
     @Test
@@ -431,7 +472,7 @@ class ExpenseServiceImplTest {
         sut.deleteExpense(5L, USER_ID);
 
         verify(balanceHistoryService).removeExpense(5L);
-        verify(balanceHistoryService, never()).recordExpense(any(), any(), any(), any(), any());
+        verify(balanceHistoryService, never()).recordExpenseKrw(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Nested
@@ -773,7 +814,28 @@ class ExpenseServiceImplTest {
 
         assertThat(info.amount()).isEqualTo(10_000L);
         verify(expenseRepository).save(any(Expense.class));
-        verify(balanceHistoryService).recordExpense(any(), any(), eq(ExpenseType.EXPENSE), eq(10_000L), any());
+        verify(balanceHistoryService).recordExpenseKrw(any(), any(), eq(ExpenseType.EXPENSE), eq(10_000L), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("createExpense 해외 결제 — 원화 금액과 함께 원 통화 금액 · 통화를 잔액 이력에 넘긴다(계좌 통화 환산 재료)")
+    void createPassesOriginalCurrencyToBalance() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        given(expenseBudgetRepository.findByUser(eq(USER_ID), anyInt(), anyInt())).willReturn(List.of());
+
+        sut.createExpense(new ExpenseServiceDto.CreateCommand(
+                USER_ID, 10L, null, ExpenseType.EXPENSE, 6_500L,
+                "커피", LocalDateTime.of(2026, 6, 1, 12, 0), "카페", "CARD", null,
+                new java.math.BigDecimal("5"), "usd", new java.math.BigDecimal("1300"),
+                null, null, null));
+
+        // 통화는 거래가 대문자로 다듬은 값 — 계좌 통화와 비교된다.
+        verify(balanceHistoryService).recordExpenseKrw(any(), any(), eq(ExpenseType.EXPENSE), eq(6_500L),
+                eq(new java.math.BigDecimal("5")), eq("USD"), any());
     }
 
     @Test
@@ -1110,7 +1172,7 @@ class ExpenseServiceImplTest {
             sut.updateExpense(1L, USER_ID, updateCmd(9L));
 
             then(e).should().updateEditableFields(any(), any(), any());
-            then(balanceHistoryService).should(never()).recordExpense(any(), any(), any(), any(), any());
+            then(balanceHistoryService).should(never()).recordExpenseKrw(any(), any(), any(), any(), any(), any(), any());
             then(balanceHistoryService).should(never()).removeExpense(any());
         }
 
@@ -1239,8 +1301,8 @@ class ExpenseServiceImplTest {
 
             assertThat(info.refundedAt()).isNull();
             assertThat(e.isCountable()).isTrue();
-            then(balanceHistoryService).should().recordExpense(
-                null, 1L, ExpenseType.EXPENSE, 50_000L, LocalDateTime.of(2026, 7, 10, 12, 0));
+            then(balanceHistoryService).should().restoreExpense(
+                null, 1L, ExpenseType.EXPENSE, 50_000L, null, null, LocalDateTime.of(2026, 7, 10, 12, 0));
         }
 
         @Test
