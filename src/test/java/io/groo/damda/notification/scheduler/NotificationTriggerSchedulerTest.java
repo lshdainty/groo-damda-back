@@ -209,7 +209,7 @@ class NotificationTriggerSchedulerTest {
 
         NotificationServiceDto.CreateCommand cmd = captureOne();
         assertThat(cmd.title()).isEqualTo("보고서 제출");     // 할일 제목 그대로 — 번역 대상이 아니다
-        assertThat(cmd.message()).isEqualTo("오늘 마감인 할일이 있어요");
+        assertThat(cmd.message()).isEqualTo("오늘 마감인 할 일이 있어요");
     }
 
     @Test
@@ -226,7 +226,7 @@ class NotificationTriggerSchedulerTest {
 
         scheduler().checkTodoReminders();
 
-        assertThat(captureOne().message()).isEqualTo("내일 마감인 할일이 있어요");
+        assertThat(captureOne().message()).isEqualTo("내일 마감인 할 일이 있어요");
     }
 
     @Test
