@@ -61,7 +61,8 @@ public class Asset extends AuditingFieldsWithIp {
      * 원화 환산율 (통화 1단위당 원화). KRW 는 1.
      *
      * <p>{@code currency} 만 있고 환산율이 없으면 USD 1,000 잔고가 순자산에 1,000원으로 더해진다.
-     * 합계·순자산은 {@code balance × exchangeRate} 로 환산한다.
+     * 합계·순자산은 {@code round(예수금 × exchangeRate) + 보유 평가(원화)} 로 환산한다 —
+     * 예수금(CASH)만 자산 통화이고 보유 평가(HOLDING)는 원화다. 보유 평가에는 환율을 곱하지 않는다.
      *
      * <p>수동 입력이다 — 토스 환율 API 는 구독(SECURITIES) 게이트 대상이라
      * 미구독자가 외화통장을 못 쓰게 된다. 구독자에게 자동으로 채워 주는 건 이 필드 위에 얹으면 된다.
@@ -230,17 +231,23 @@ public class Asset extends AuditingFieldsWithIp {
     }
 
     /**
-     * 원화 환산 잔액 — 합계·순자산은 이 값을 쓴다.
+     * 원화 환산 합계 — 합계·순자산·추이는 모두 이 값을 쓴다.
      *
-     * <p>USD 1,000 (환산율 1,400) → 1,400,000원. 원화 자산은 환산율이 1이라 그대로다.
+     * <p>{@code round(cash × 환산율) + holding}. 예수금(CASH)만 자산 통화이고, 보유 평가(HOLDING)는
+     * 원화로 적혀 있어(연동 평가 = 시세 × 종목 통화 환율, 수동 평가 = 원 단위 입력) 환율을 곱하지 않는다.
+     * 총잔액에 환율을 곱하면 보유 평가에 환율이 이중으로 곱해진다.
+     *
+     * <p>USD 예수금 100 · 환산율 1,300 · 보유 평가 10,000,000원 → 10,130,000원. 보유 없는 외화
+     * 예수금 100 → 130,000원. 원화 자산은 환산율이 1이라 cash + holding 그대로다.
      */
-    public long balanceInKrw(long rawBalance) {
+    public long balanceInKrw(long cash, long holding) {
         if (exchangeRate == null || BigDecimal.ONE.compareTo(exchangeRate) == 0) {
-            return rawBalance;
+            return cash + holding;
         }
-        return exchangeRate.multiply(BigDecimal.valueOf(rawBalance))
+        long cashKrw = exchangeRate.multiply(BigDecimal.valueOf(cash))
             .setScale(0, java.math.RoundingMode.HALF_UP)
             .longValueExact();
+        return cashKrw + holding;
     }
 
     /**

@@ -249,4 +249,65 @@ class AssetServiceSummaryTest {
 
         assertThat(sut.getAssetSummary(USER_ID, null, null).totalAssets()).isEqualTo(1_234_567L);
     }
+
+    @Test
+    @DisplayName("외화 투자 자산 — 순자산은 round(예수금 × 환율) + 보유 평가(원화), 전월 점도 같은 식")
+    void foreignInvestmentSummaryUsesCashRateOnly() {
+        Asset krw = asset(1L, AssetType.BANK_ACCOUNT);
+        Asset usdInvest = foreignAsset(2L, AssetType.INVESTMENT, "USD", "1300");
+        given(assetRepository.findByUser(USER_ID)).willReturn(List.of(krw, usdInvest));
+
+        java.util.Map<Long, AssetBalanceHistoryService.Split> balances = new java.util.HashMap<>();
+        given(balanceHistoryService.balancesAt(anyCollection(), any(LocalDateTime.class)))
+            .willReturn(balances);
+        balances.put(1L, new AssetBalanceHistoryService.Split(1_000_000L, 0L));
+        // 예수금 $100 + 보유 평가 10,000,000원(원화)
+        balances.put(2L, new AssetBalanceHistoryService.Split(100L, 10_000_000L));
+
+        AssetServiceDto.AssetSummary summary = sut.getAssetSummary(USER_ID, null, null);
+
+        // 종전 식 (100 + 10,000,000) × 1,300 = 13,000,130,000 이 아니라 130,000 + 10,000,000
+        assertThat(summary.netWorth()).isEqualTo(1_000_000L + 10_130_000L);
+        assertThat(summary.totalAssets()).isEqualTo(11_130_000L);
+        // 두 시점이 같은 집계를 돌려주니 전월도 같은 식이면 증감은 0
+        assertThat(summary.lastMonthNetWorth()).isEqualTo(11_130_000L);
+        assertThat(summary.changeAmount()).isZero();
+    }
+
+    @Test
+    @DisplayName("외화 투자 자산 — 순자산 추이 과거 점도 새 식이다")
+    void foreignInvestmentTrendUsesNewFormula() {
+        Asset usdInvest = foreignAsset(2L, AssetType.INVESTMENT, "USD", "1300");
+        given(assetRepository.findByUser(USER_ID)).willReturn(List.of(usdInvest));
+
+        // 3개월 점: 과거(보유 수동 5,000원) → 중간(보유 없음) → 현재(라이브 10,000,000원)
+        given(balanceHistoryService.balancesAtPoints(anyCollection(), any()))
+            .willReturn(java.util.Map.of(2L, List.of(
+                new AssetBalanceHistoryService.Split(100L, 5_000L),
+                new AssetBalanceHistoryService.Split(100L, 0L),
+                new AssetBalanceHistoryService.Split(100L, 10_000_000L))));
+
+        List<AssetServiceDto.NetWorthTrendPoint> points = sut.getNetWorthTrend(USER_ID, 3);
+
+        assertThat(points).extracting(AssetServiceDto.NetWorthTrendPoint::netWorth)
+            .containsExactly(135_000L, 130_000L, 10_130_000L);
+    }
+
+    @Test
+    @DisplayName("자산 응답 — balanceInKrw 는 요약과 같은 식, balance·cashBalance·holdingBalance 는 그대로")
+    void assetInfoCarriesBalanceInKrw() {
+        Asset usdInvest = foreignAsset(2L, AssetType.INVESTMENT, "USD", "1300");
+        ReflectionTestUtils.setField(usdInvest, "user", mock(io.groo.damda.user.domain.User.class));
+
+        AssetServiceDto.AssetInfo info = AssetServiceDto.AssetInfo.from(usdInvest, List.of(),
+            new AssetBalanceHistoryService.Split(100L, 5_000L));
+
+        assertThat(info.balance()).isEqualTo(5_100L);
+        assertThat(info.cashBalance()).isEqualTo(100L);
+        assertThat(info.holdingBalance()).isEqualTo(5_000L);
+        assertThat(info.balanceInKrw()).isEqualTo(135_000L);
+        // 카드 상태를 붙여도 칸이 사라지지 않는다
+        assertThat(info.withMonthlyUsedAmount(1L).balanceInKrw()).isEqualTo(135_000L);
+        assertThat(info.withCardState(null, false, null, null).balanceInKrw()).isEqualTo(135_000L);
+    }
 }

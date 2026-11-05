@@ -76,6 +76,24 @@ class AssetApiControllerTest {
         verify(assetService).deleteAsset(eq(100L), eq(1L));
     }
 
+    @Test
+    @DisplayName("GET /assets · /asset/{id} — 응답에 원화 합계 balanceInKrw 가 실리고 기존 칸은 그대로")
+    void responseCarriesBalanceInKrw() throws Exception {
+        AssetServiceDto.AssetInfo usd = sampleAsset().withBalanceInKrw(135_000L);
+        given(assetService.getAssets(1L)).willReturn(List.of(usd));
+        given(assetService.getAsset(100L, 1L)).willReturn(usd);
+
+        mockMvc.perform(get("/api/v1/assets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.assets[0].balanceInKrw").value(135000))
+                .andExpect(jsonPath("$.data.assets[0].balance").value(50000))
+                .andExpect(jsonPath("$.data.assets[0].cashBalance").value(50000))
+                .andExpect(jsonPath("$.data.assets[0].holdingBalance").value(0));
+        mockMvc.perform(get("/api/v1/asset/{id}", 100L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balanceInKrw").value(135000));
+    }
+
     private AssetServiceDto.AssetInfo sampleAsset() {
         return new AssetServiceDto.AssetInfo(
                 100L, 1L, "주거래", AssetType.BANK_ACCOUNT, 50_000L, 50_000L, 0L, "KRW",

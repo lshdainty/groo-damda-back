@@ -291,7 +291,12 @@ public class AssetApiDto {
          * 신용카드: 결제 대기 청구분 칸 — 청구분이 있거나, 등록한 달의 그 회차 결제일이 아직 안 왔으면
          * 값(폼이 칸을 그린다). 그 외 null.
          */
-        DueCarryoverResponse dueCarryover
+        DueCarryoverResponse dueCarryover,
+        /**
+         * 원화 환산 합계 = round(cashBalance × exchangeRate) + holdingBalance. 예수금만 자산 통화, 보유 평가는 원화.
+         * 순자산·요약과 같은 식이다. 원화 자산은 balance 와 같다. (기존 칸은 그대로 — 더하기만 했다.)
+         */
+        Long balanceInKrw
     ) {
         public static AssetResponse from(AssetServiceDto.AssetInfo info) {
             return new AssetResponse(
@@ -308,7 +313,8 @@ public class AssetApiDto {
                 info.monthlyUsedAmount(),
                 info.carryoverAmount(), info.carryoverLocked(), info.cardClosedThrough(),
                 info.nextPaymentDate(),
-                DueCarryoverResponse.from(info.dueCarryover())
+                DueCarryoverResponse.from(info.dueCarryover()),
+                info.balanceInKrw()
             );
         }
     }

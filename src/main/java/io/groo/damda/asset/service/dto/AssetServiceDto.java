@@ -271,7 +271,13 @@ public class AssetServiceDto {
          * 신용카드: 결제 대기 청구분 칸. 청구분이 있거나, 카드를 등록한 달의 그 회차 결제일이 아직 안
          * 왔으면 값 — 폼이 칸을 그린다. 그 외 null(칸 없음).
          */
-        DueCarryover dueCarryover
+        DueCarryover dueCarryover,
+        /**
+         * 원화 환산 합계 = round(cashBalance × 환율) + holdingBalance. 예수금만 자산 통화이고 보유 평가는 원화라
+         * 환율을 곱하는 건 예수금뿐이다. 순자산·요약·추이와 같은 식이라 줄·묶음 합계가 서버와 어긋나지 않는다.
+         * 원화 자산은 balance 와 같다. 환산을 모르는 호출자(테스트 등)는 null.
+         */
+        Long balanceInKrw
     ) {
         /** 카드 상태를 모르는 호출자(테스트 등) — 카드 칸은 비운다. */
         public AssetInfo(Long rowId, Long userRowId, String assetName, AssetType assetType, Long balance,
@@ -285,7 +291,7 @@ public class AssetServiceDto {
             this(rowId, userRowId, assetName, assetType, balance, cashBalance, holdingBalance, currency,
                 exchangeRate, color, institution, memo, sortOrder, isIncludedInTotal, isAmountHidden, cardCatalog,
                 creditLimit, paymentDay, paymentAssetRowId, marketCode, symbol, quantity, holdings, createAt,
-                modifyAt, monthlyUsedAmount, null, false, null, null, null);
+                modifyAt, monthlyUsedAmount, null, false, null, null, null, null);
         }
 
         /** 잔액 없이(0) 만든다 — 잔액이 화면에 안 쓰이는 응답 전용. */
@@ -336,7 +342,16 @@ public class AssetServiceDto {
                 asset.getCreateAt(),
                 asset.getModifyAt(),
                 null
-            );
+            ).withBalanceInKrw(asset.balanceInKrw(cash, holdingValue));
+        }
+
+        /** 원화 환산 합계를 붙인다. */
+        public AssetInfo withBalanceInKrw(Long krw) {
+            return new AssetInfo(rowId, userRowId, assetName, assetType, balance, cashBalance,
+                holdingBalance, currency, exchangeRate, color, institution, memo, sortOrder,
+                isIncludedInTotal, isAmountHidden, cardCatalog, creditLimit, paymentDay, paymentAssetRowId,
+                marketCode, symbol, quantity, holdings, createAt, modifyAt, monthlyUsedAmount,
+                carryoverAmount, carryoverLocked, cardClosedThrough, nextPaymentDate, dueCarryover, krw);
         }
 
         public AssetInfo withMonthlyUsedAmount(Long monthlyUsed) {
@@ -344,7 +359,7 @@ public class AssetServiceDto {
                 holdingBalance, currency, exchangeRate, color, institution, memo, sortOrder,
                 isIncludedInTotal, isAmountHidden, cardCatalog, creditLimit, paymentDay, paymentAssetRowId,
                 marketCode, symbol, quantity, holdings, createAt, modifyAt, monthlyUsed,
-                carryoverAmount, carryoverLocked, cardClosedThrough, nextPaymentDate, dueCarryover);
+                carryoverAmount, carryoverLocked, cardClosedThrough, nextPaymentDate, dueCarryover, balanceInKrw);
         }
 
         /** 신용카드 상태(이월 금액·잠금·닫힌 회차 끝·다음 실제 결제일)를 붙인다. */
@@ -360,7 +375,7 @@ public class AssetServiceDto {
                 holdingBalance, currency, exchangeRate, color, institution, memo, sortOrder,
                 isIncludedInTotal, isAmountHidden, cardCatalog, creditLimit, paymentDay, paymentAssetRowId,
                 marketCode, symbol, quantity, holdings, createAt, modifyAt, monthlyUsedAmount,
-                carryover, locked, closedThrough, nextPayment, due);
+                carryover, locked, closedThrough, nextPayment, due, balanceInKrw);
         }
     }
 
