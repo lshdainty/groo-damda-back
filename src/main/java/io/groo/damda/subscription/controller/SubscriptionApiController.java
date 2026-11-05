@@ -67,11 +67,14 @@ public class SubscriptionApiController {
         String status,
         LocalDateTime startedAt,
         LocalDateTime currentPeriodEnd,
-        boolean autoRenew
+        boolean autoRenew,
+        Integer price,
+        Integer durationMonths
     ) {
         public static SubscriptionResponse from(SubscriptionService.SubscriptionInfo i) {
             return new SubscriptionResponse(
-                i.planCode(), i.planName(), i.status(), i.startedAt(), i.currentPeriodEnd(), i.autoRenew());
+                i.planCode(), i.planName(), i.status(), i.startedAt(), i.currentPeriodEnd(), i.autoRenew(),
+                i.price(), i.durationMonths());
         }
     }
 }
