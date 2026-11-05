@@ -731,6 +731,23 @@ class AssetServiceImplTest {
         }
     }
 
+    @Test
+    @DisplayName("getAssetBalanceTrend(M3) — USD 예수금 $100 + 보유 10,000,000원: balance 10,000,100(옛 뜻) · balanceInKrw 10,130,000")
+    void assetTrendCarriesKrwPoint() {
+        Asset usd = Asset.createAsset(user(USER_ID), "달러 증권", AssetType.INVESTMENT, 0L, "USD",
+            new java.math.BigDecimal("1300"), null, null, null, 0, YNType.Y, null, null, null, null);
+        ReflectionTestUtils.setField(usd, "rowId", 5L);
+        given(assetRepository.findById(5L)).willReturn(Optional.of(usd));
+        given(balanceHistoryService.balancesAtPoints(any(), any())).willReturn(java.util.Map.of(
+            5L, List.of(new AssetBalanceHistoryService.Split(100L, 10_000_000L))));
+
+        var points = sut.getAssetBalanceTrend(5L, USER_ID, 1);
+
+        assertThat(points).hasSize(1);
+        assertThat(points.get(0).balance()).isEqualTo(10_000_100L);
+        assertThat(points.get(0).balanceInKrw()).isEqualTo(10_130_000L);
+    }
+
     // ── 통화 규칙(H2 · L7) ─────────────────────────────────────────
 
     @Nested

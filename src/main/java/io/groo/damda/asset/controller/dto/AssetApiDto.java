@@ -388,9 +388,10 @@ public class AssetApiDto {
         }
     }
 
-    public record AssetBalancePointResponse(java.time.LocalDate weekStart, Long balance) {
+    /** balance = 예수금 + 보유(옛 뜻 그대로), balanceInKrw = 원화 합계(한 식). */
+    public record AssetBalancePointResponse(java.time.LocalDate weekStart, Long balance, Long balanceInKrw) {
         public static AssetBalancePointResponse from(AssetServiceDto.AssetBalancePoint p) {
-            return new AssetBalancePointResponse(p.weekStart(), p.balance());
+            return new AssetBalancePointResponse(p.weekStart(), p.balance(), p.balanceInKrw());
         }
     }
 

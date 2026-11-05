@@ -410,7 +410,10 @@ public class AssetServiceDto {
     /** 자산 상세 차트용 — 각 주의 월요일(weekStart) 기준 잔액. */
     public record AssetBalancePoint(
         LocalDate weekStart,
-        Long balance
+        /** 예수금 + 보유 — 옛 클라이언트용으로 뜻 그대로(외화 투자 자산은 단위가 섞인다). */
+        Long balance,
+        /** 원화 합계 — round(예수금 × 환율) + 보유 평가. 요약 · 순자산과 같은 식 */
+        Long balanceInKrw
     ) {}
 
     // === Asset Transfer ===

@@ -1176,8 +1176,11 @@ public class AssetServiceImpl implements AssetService {
 
         List<AssetServiceDto.AssetBalancePoint> points = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            long balance = i < series.size() ? series.get(i).total() : 0L;
-            points.add(new AssetServiceDto.AssetBalancePoint(weekStarts.get(i), balance));
+            AssetBalanceHistoryService.Split split =
+                i < series.size() ? series.get(i) : AssetBalanceHistoryService.Split.ZERO;
+            // balance 는 옛 클라이언트용으로 그대로(예수금 + 보유, 자산 통화 · 원화가 섞일 수 있다).
+            // 원화 점은 요약 · 순자산과 같은 한 식 — round(예수금 × 환율) + 보유 평가.
+            points.add(new AssetServiceDto.AssetBalancePoint(weekStarts.get(i), split.total(), krwOf(asset, split)));
         }
         return points;
     }
