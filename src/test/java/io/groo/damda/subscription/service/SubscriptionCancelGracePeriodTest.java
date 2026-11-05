@@ -60,6 +60,7 @@ class SubscriptionCancelGracePeriodTest {
         ReflectionTestUtils.setField(plan, "planName", "증권 구독");
         ReflectionTestUtils.setField(plan, "features", "[\"SECURITIES\"]");
         ReflectionTestUtils.setField(plan, "durationMonths", 1);
+        ReflectionTestUtils.setField(plan, "price", 9900);
         ReflectionTestUtils.setField(plan, "isActive", YNType.Y);
         ReflectionTestUtils.setField(plan, "sortOrder", 1);
         ReflectionTestUtils.setField(plan, "isDeleted", YNType.N);

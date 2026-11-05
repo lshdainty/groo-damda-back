@@ -170,10 +170,10 @@ class SubscriptionServiceImplTest {
     @Test
     @DisplayName("활성 플랜 목록은 정렬 차례(월간 -> 연간) 그대로 price·durationMonths 를 싣는다")
     void getActivePlans_carriesPriceInSortOrder() {
+        SubscriptionPlan monthly = plan("SECURITIES", "증권 구독", 1, 9900);
+        SubscriptionPlan yearly = plan("SECURITIES_YEARLY", "증권 구독(연간)", 12, 99000);
         given(planRepository.findByIsActiveAndIsDeletedOrderBySortOrderAsc(YNType.Y, YNType.N))
-            .willReturn(List.of(
-                plan("SECURITIES", "증권 구독", 1, 9900),
-                plan("SECURITIES_YEARLY", "증권 구독(연간)", 12, 99000)));
+            .willReturn(List.of(monthly, yearly));
 
         List<SubscriptionService.PlanInfo> plans = sut.getActivePlans();
 
