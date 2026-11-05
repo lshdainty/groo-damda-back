@@ -412,8 +412,9 @@ public class RecurringTransactionServiceImpl implements RecurringTransactionServ
         expenseRepository.save(expense);
 
         // 자산 잔액 이력: 자동 생성 expense 의 flow 적재 — 잔액은 조회할 때 이력에서 집계한다
-        balanceHistoryService.recordExpense(recurring.getAsset(), expense.getRowId(),
-            recurring.getExpenseType().toExpenseType(), recurring.getAmount(), executionDateTime);
+        // 반복 금액은 원화 — 외화 계좌면 계좌 환율로 나눠 적는다(원화 계좌는 그대로).
+        balanceHistoryService.recordExpenseKrw(recurring.getAsset(), expense.getRowId(),
+            recurring.getExpenseType().toExpenseType(), recurring.getAmount(), null, null, executionDateTime);
 
         return expense.getRowId();
     }
