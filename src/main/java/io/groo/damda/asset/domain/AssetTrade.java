@@ -212,12 +212,6 @@ public class AssetTrade extends AuditingFieldsWithIp {
         return asset;
     }
 
-    /** 이 거래가 예수금(자산 통화)에 준 증감 — {@link #cashDeltaOf} 와 같은 식. */
-    public long cashDelta() {
-        return cashDeltaOf(asset, tradeType,
-            amount != null ? amount : 0L, fee != null ? fee : 0L);
-    }
-
     /**
      * 매매가 예수금(CASH, <b>자산 통화</b>)에 주는 증감.
      *

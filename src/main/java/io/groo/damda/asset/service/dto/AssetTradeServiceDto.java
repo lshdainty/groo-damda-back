@@ -83,6 +83,10 @@ public final class AssetTradeServiceDto {
         /** 거래 후 예수금(자산 통화) */
         Long cashAfter,
         /** 결제 계좌에서 나갈 금액(<b>결제 계좌 통화</b> — 원화 통장이면 원화, 없으면 0) */
-        Long fundingAmount
+        Long fundingAmount,
+        /** cashDelta · cashAfter 의 통화 — 투자 계좌 통화(예: USD). soldCost · realizedPl 은 늘 원화 */
+        String cashCurrency,
+        /** fundingAmount 의 통화 — 결제 계좌 통화. 결제 계좌를 안 골랐으면 null */
+        String fundingCurrency
     ) {}
 }

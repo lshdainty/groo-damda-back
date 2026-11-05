@@ -75,6 +75,8 @@ class StockTradeScenarioTest {
 
     private final List<Funding> transfers = new ArrayList<>();
     private final List<Long> deletedTransferIds = new ArrayList<>();
+    /** recordTrade 가 거래마다 예수금에 남긴 flow — 취소는 이 값을 그대로 되돌린다. */
+    private final java.util.Map<Long, Long> recordedCash = new java.util.HashMap<>();
     // 시장코드 확정은 mock 기본값(null) — 확정 못 한 경우와 같다.
     @Mock private io.groo.damda.stock.service.StockMasterResolver stockMasterResolver;
     @InjectMocks private AssetTradeServiceImpl sut;
@@ -162,21 +164,26 @@ class StockTradeScenarioTest {
         // 다음 매수의 예수금 검사가 현실처럼 동작한다.
         willAnswer(inv -> {
             Asset target = inv.getArgument(0);
+            Long tradeId = inv.getArgument(1);
             long delta = inv.getArgument(2);
             if (BANK_ID == target.getRowId()) {
                 bankFlow += delta;
             } else {
                 cash += delta;
+                recordedCash.put(tradeId, delta);
             }
             return null;
         }).given(balanceHistoryService).recordTrade(any(), any(), any(Long.class), any());
-        // 취소는 그 거래가 남긴 flow 를 되돌린다.
+        // 취소는 그 거래가 <b>저장한</b> flow 를 되돌린다 — 실제 removeTrade 가 그 행을 soft-delete 하듯,
+        // 다시 계산하지 않고 적어 둔 값을 뺀다.
         willAnswer(inv -> {
             Long id = inv.getArgument(0);
             // 매매 flow 는 결제 계좌와 무관하게 언제나 예수금이다 — 결제 계좌는 이체로
             // 예수금을 채울 뿐이고, 그 이체는 deleteTransfer 가 따로 되돌린다.
-            trades.stream().filter(t -> id.equals(t.getRowId())).findFirst()
-                .ifPresent(t -> cash -= t.cashDelta());
+            Long stored = recordedCash.remove(id);
+            if (stored != null) {
+                cash -= stored;
+            }
             return null;
         }).given(balanceHistoryService).removeTrade(any());
 
@@ -1066,14 +1073,18 @@ class StockTradeScenarioTest {
         }
 
         @Test
-        @DisplayName("취소하면 예수금이 매수 전으로 — 저장한 달러 증감을 그대로 되돌린다")
-        void deleteRestoresCash() {
+        @DisplayName("취소는 저장한 달러 증감을 되돌린다 — 그 사이 환율을 1,400 으로 고쳐도 예수금이 매수 전 $2,000 으로")
+        void deleteRestoresStoredCash() {
             deposit(2_000L);
             var info = sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, null));
+            assertThat(cash).isEqualTo(1_000L);
+            // 계좌 환율을 고친다 — 다시 계산하면 1,300,000 ÷ 1,400 = 929 를 되돌려 $1,929 가 된다.
+            ReflectionTestUtils.setField(usd, "exchangeRate", new BigDecimal("1400"));
 
             sut.deleteTrade(info.rowId(), USER_ID);
 
             assertThat(cash).isEqualTo(2_000L);
+            assertThat(recordedCash).isEmpty();
         }
 
         @Test
@@ -1090,8 +1101,62 @@ class StockTradeScenarioTest {
             assertThat(cash).isZero();
         }
 
+        /** 결제 계좌를 다른 통화 · 환율의 통장으로 바꿔 끼운다(같은 BANK_ID). */
+        private Asset bankIn(String currency, String rate) {
+            Asset b = Asset.createAsset(user, currency + " 통장", AssetType.BANK_ACCOUNT, 0L, currency,
+                new BigDecimal(rate), null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(b, "rowId", BANK_ID);
+            given(assetRepository.findById(BANK_ID)).willReturn(Optional.of(b));
+            return b;
+        }
+
         @Test
-        @DisplayName("미리보기 — 저장과 같은 식: 예수금 변동 −$1,000 · 거래 후 $0 · 통장에서 1,170,000원")
+        @DisplayName("같은 통화 충당 — USD 통장(1,310) → USD 계좌(1,300): 부족분 $900 그대로 보내고 받는다(to_amount 없음)")
+        void settlementSameCurrency() {
+            bankIn("USD", "1310");
+            deposit(100L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(transfers).hasSize(1);
+            assertThat(transfers.get(0).amount()).isEqualTo(900L);    // 보내는 계좌 통화(USD)
+            assertThat(transfers.get(0).credited()).isEqualTo(900L);  // NULL → 보낸 만큼
+            assertThat(bankFlow).isEqualTo(-900L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("다른 외화 충당 — EUR 통장(1,450) → USD 계좌: 900 × 1,300 ÷ 1,450 = 806.9 → €807 보내고 $900 받는다")
+        void settlementFromEur() {
+            bankIn("EUR", "1450");
+            deposit(100L);
+
+            sut.createTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(transfers.get(0).amount()).isEqualTo(807L);
+            assertThat(transfers.get(0).credited()).isEqualTo(900L);
+            assertThat(bankFlow).isEqualTo(-807L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("환율 1 미만 같은 통화 충당(VND 0.055) — 부족분을 환산하지 않아 1단위도 새지 않는다")
+        void settlementLowRateSameCurrency() {
+            Asset vnd = Asset.createAsset(user, "VND 계좌", AssetType.INVESTMENT, 0L, "VND",
+                new BigDecimal("0.055"), null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(vnd, "rowId", ASSET_ID);
+            given(assetRepository.findById(ASSET_ID)).willReturn(Optional.of(vnd));
+            bankIn("VND", "0.055");
+
+            // 55원 → round(55 ÷ 0.055) = 1,000 VND 매수, 예수금 0 → 부족분 1,000 VND
+            sut.createTrade(usdTrade(TradeType.BUY, "1", 55L, 0L, BANK_ID));
+
+            assertThat(transfers.get(0).amount()).isEqualTo(1_000L);
+            assertThat(cash).isZero();
+        }
+
+        @Test
+        @DisplayName("미리보기 — 저장과 같은 식: 예수금 변동 −$1,000 · 거래 후 $0 · 통장에서 1,170,000원 · 통화 USD / KRW")
         void previewMatches() {
             deposit(100L);
 
@@ -1100,6 +1165,21 @@ class StockTradeScenarioTest {
             assertThat(preview.cashDelta()).isEqualTo(-1_000L);
             assertThat(preview.cashAfter()).isZero();
             assertThat(preview.fundingAmount()).isEqualTo(1_170_000L);
+            assertThat(preview.cashCurrency()).isEqualTo("USD");
+            assertThat(preview.fundingCurrency()).isEqualTo("KRW");
+        }
+
+        @Test
+        @DisplayName("미리보기 EUR 통장 — 결제 계좌를 실제로 읽어 €807 · EUR (원화로 가정하면 1,170,000 이 나온다)")
+        void previewReadsSettlementAccount() {
+            bankIn("EUR", "1450");
+            deposit(100L);
+
+            var preview = sut.previewTrade(usdTrade(TradeType.BUY, "10", 1_300_000L, 0L, BANK_ID));
+
+            assertThat(preview.fundingAmount()).isEqualTo(807L);
+            assertThat(preview.fundingCurrency()).isEqualTo("EUR");
+            assertThat(preview.cashAfter()).isZero();
         }
 
         @Test
@@ -1112,6 +1192,7 @@ class StockTradeScenarioTest {
             assertThat(preview.cashDelta()).isEqualTo(-1_000L);
             assertThat(preview.cashAfter()).isEqualTo(-900L);
             assertThat(preview.fundingAmount()).isZero();
+            assertThat(preview.fundingCurrency()).isNull();
         }
     }
 }

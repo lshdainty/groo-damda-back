@@ -413,47 +413,49 @@ public class AssetTradeServiceImpl implements AssetTradeService {
         // 나가는 몫이다. 원화 결제 계좌면 원화라 화면의 "…원을 옮겨요" 와 맞는다.
         long shortfall = 0L;
         long funding = 0L;
+        String fundingCurrency = null;
         if (command.tradeType() == TradeType.BUY && command.settlementAssetRowId() != null) {
+            // 미리보기는 폼을 막지 않는다 — 결제 계좌를 못 찾으면 원화 계좌로 보고 계산한다.
+            Asset settlement = assetRepository.findById(command.settlementAssetRowId())
+                .filter(s -> s.getUser() != null
+                    && Objects.equals(s.getUser().getRowId(), command.userRowId()))
+                .orElse(null);
+            fundingCurrency = settlement != null ? currencyOf(settlement) : "KRW";
             shortfall = Math.max(0L, -cashDelta - cashNow);
             if (shortfall > 0L) {
-                // 미리보기는 폼을 막지 않는다 — 결제 계좌를 못 찾으면 원화 계좌로 보고 계산한다.
-                Asset settlement = assetRepository.findById(command.settlementAssetRowId())
-                    .filter(s -> s.getUser() != null
-                        && Objects.equals(s.getUser().getRowId(), command.userRowId()))
-                    .orElse(null);
-                AssetServiceDto.CreateTransferCommand fundingCmd = settlementFundingCommand(
-                    command.userRowId(), settlement, asset, shortfall, null);
                 funding = settlement != null
-                    ? settlement.krwToAssetCurrency(fundingCmd.amount())
-                    : fundingCmd.amount();
+                    ? settlementFundingCommand(command.userRowId(), settlement, asset, shortfall, null).amount()
+                    : asset.toKrw(shortfall);
             }
         }
 
         return new AssetTradeServiceDto.TradePreview(
-            soldCost, realized, cashDelta, cashNow + shortfall + cashDelta, funding);
+            soldCost, realized, cashDelta, cashNow + shortfall + cashDelta, funding,
+            currencyOf(asset), fundingCurrency);
+    }
+
+    private static String currencyOf(Asset a) {
+        return a.getCurrency() == null || a.getCurrency().isBlank() ? "KRW" : a.getCurrency().toUpperCase();
     }
 
     /**
      * 매수 충당 이체 — 예수금에 {@code shortfall}(자산 통화)이 정확히 들어오게 만든다.
      *
-     * <p>이체 금액(amount)은 원화다(이체 칸이 "원"). 그래서 부족분을 원화로 바꿔 보낸다:
+     * <p>이체 금액(amount)은 <b>보내는 계좌 통화</b>다.
      * <ul>
-     *   <li>두 계좌 통화가 같으면 결제 계좌 환율로 바꾼다 — 받는 쪽은 보낸 쪽과 같은 값을 받으므로
-     *       (to_amount NULL) 결제 계좌 환율로 나눴을 때 정확히 shortfall 이 되어야 한다.</li>
-     *   <li>다르면 투자 계좌 환율로 바꾸고, 받는 금액(to_amount)을 shortfall 로 못 박는다 — 원화로
-     *       바꿨다 다시 나누는 왕복 반올림이 끼지 않는다.</li>
+     *   <li>두 계좌 통화가 같으면 부족분 그대로 보낸다(환산 없음 — 환율이 1 보다 작은 통화도 1단위 새지 않는다).</li>
+     *   <li>다르면 부족분을 원화를 거쳐 결제 계좌 통화로 바꿔 보내고({@code round(부족분 × 투자 계좌 환율
+     *       ÷ 결제 계좌 환율)}), 받는 금액(to_amount)을 부족분으로 못 박는다 — 왕복 반올림이 끼지 않는다.</li>
      * </ul>
      * 원화 → 원화는 shortfall 그대로다(지금과 같다).
      */
     private static AssetServiceDto.CreateTransferCommand settlementFundingCommand(
             Long userRowId, Asset settlement, Asset asset, long shortfall, LocalDateTime at) {
-        boolean same = settlement == null || settlement.sameCurrencyAs(asset);
-        long amountKrw = same && settlement != null
-            ? settlement.toKrw(shortfall)
-            : asset.toKrw(shortfall);
+        boolean same = settlement.sameCurrencyAs(asset);
+        long amount = same ? shortfall : asset.convertTo(shortfall, settlement);
         return new AssetServiceDto.CreateTransferCommand(
-            userRowId, settlement != null ? settlement.getRowId() : null, asset.getRowId(),
-            amountKrw, 0L, 0L, SETTLEMENT_TRANSFER_DESC, at,
+            userRowId, settlement.getRowId(), asset.getRowId(),
+            amount, 0L, 0L, SETTLEMENT_TRANSFER_DESC, at,
             "TRADE_SETTLEMENT", same ? null : shortfall);
     }
 
