@@ -113,11 +113,8 @@ public class AssetTradeServiceImpl implements AssetTradeService {
             costDelta = amount + fee;
         }
 
-        long cashDelta = switch (type) {
-            case BUY -> -(amount + fee);
-            case SELL -> amount - fee;
-            case OPENING -> 0L;
-        };
+        // 예수금 증감은 자산 통화다 — 원화 대금을 외화 계좌 환율로 나눈다(원화 계좌는 그대로).
+        long cashDelta = AssetTrade.cashDeltaOf(asset, type, amount, fee);
         // 결제 계좌는 매수에만 쓴다 — 매도 대금은 예수금에 남기고 사용자가 이체로 관리한다
         // (팔았다고 통장으로 자동 이체되지는 않는다).
         Asset settlement = type == TradeType.BUY
@@ -148,14 +145,13 @@ public class AssetTradeServiceImpl implements AssetTradeService {
         // 예수금이 충분하면 ①이 생기지 않는다. 이 이체는 앱이 매수 때문에 만든 것이라
         // 거래를 취소하면 함께 지운다(카드 결제의 card_billing ↔ 이체와 같은 구조).
         if (settlement != null) {
+            // 부족분은 예수금과 같은 자산 통화로 잰다(cashNow · cashDelta 모두 자산 통화).
             long cashNow = balanceHistoryService.balanceAt(asset, trade.getTradeDate()).cash();
             long shortfall = -cashDelta - cashNow;
             if (shortfall > 0) {
                 AssetServiceDto.TransferInfo funding = assetService.createTransfer(
-                    new AssetServiceDto.CreateTransferCommand(
-                        command.userRowId(), settlement.getRowId(), asset.getRowId(),
-                        shortfall, 0L, 0L, SETTLEMENT_TRANSFER_DESC, trade.getTradeDate(),
-                        "TRADE_SETTLEMENT"));
+                    settlementFundingCommand(command.userRowId(), settlement, asset,
+                        shortfall, trade.getTradeDate()));
                 trade.linkSettlementTransfer(funding.rowId());
             }
         }
@@ -394,11 +390,8 @@ public class AssetTradeServiceImpl implements AssetTradeService {
         long fee = command.fee() != null ? command.fee() : 0L;
         BigDecimal quantity = command.quantity() != null ? command.quantity() : BigDecimal.ZERO;
 
-        long cashDelta = switch (command.tradeType()) {
-            case BUY -> -(amount + fee);
-            case SELL -> amount - fee;
-            case OPENING -> 0L;
-        };
+        // 저장 때와 같은 식 — 예수금 증감 · 거래 후 예수금은 자산 통화다.
+        long cashDelta = AssetTrade.cashDeltaOf(asset, command.tradeType(), amount, fee);
         long cashNow = balanceHistoryService
             .balanceAt(asset, command.tradeDate() != null
                 ? command.tradeDate() : userClock.now(command.userRowId())).cash();
@@ -416,13 +409,52 @@ public class AssetTradeServiceImpl implements AssetTradeService {
         }
 
         // 결제 계좌를 골랐으면 부족분만 끌어온다 — 저장 때와 같은 계산이다.
+        // shortfall 은 예수금(자산 통화)에 들어오는 몫, fundingAmount 는 결제 계좌(그 계좌 통화)에서
+        // 나가는 몫이다. 원화 결제 계좌면 원화라 화면의 "…원을 옮겨요" 와 맞는다.
+        long shortfall = 0L;
         long funding = 0L;
         if (command.tradeType() == TradeType.BUY && command.settlementAssetRowId() != null) {
-            funding = Math.max(0L, -cashDelta - cashNow);
+            shortfall = Math.max(0L, -cashDelta - cashNow);
+            if (shortfall > 0L) {
+                // 미리보기는 폼을 막지 않는다 — 결제 계좌를 못 찾으면 원화 계좌로 보고 계산한다.
+                Asset settlement = assetRepository.findById(command.settlementAssetRowId())
+                    .filter(s -> s.getUser() != null
+                        && Objects.equals(s.getUser().getRowId(), command.userRowId()))
+                    .orElse(null);
+                AssetServiceDto.CreateTransferCommand fundingCmd = settlementFundingCommand(
+                    command.userRowId(), settlement, asset, shortfall, null);
+                funding = settlement != null
+                    ? settlement.krwToAssetCurrency(fundingCmd.amount())
+                    : fundingCmd.amount();
+            }
         }
 
         return new AssetTradeServiceDto.TradePreview(
-            soldCost, realized, cashDelta, cashNow + funding + cashDelta, funding);
+            soldCost, realized, cashDelta, cashNow + shortfall + cashDelta, funding);
+    }
+
+    /**
+     * 매수 충당 이체 — 예수금에 {@code shortfall}(자산 통화)이 정확히 들어오게 만든다.
+     *
+     * <p>이체 금액(amount)은 원화다(이체 칸이 "원"). 그래서 부족분을 원화로 바꿔 보낸다:
+     * <ul>
+     *   <li>두 계좌 통화가 같으면 결제 계좌 환율로 바꾼다 — 받는 쪽은 보낸 쪽과 같은 값을 받으므로
+     *       (to_amount NULL) 결제 계좌 환율로 나눴을 때 정확히 shortfall 이 되어야 한다.</li>
+     *   <li>다르면 투자 계좌 환율로 바꾸고, 받는 금액(to_amount)을 shortfall 로 못 박는다 — 원화로
+     *       바꿨다 다시 나누는 왕복 반올림이 끼지 않는다.</li>
+     * </ul>
+     * 원화 → 원화는 shortfall 그대로다(지금과 같다).
+     */
+    private static AssetServiceDto.CreateTransferCommand settlementFundingCommand(
+            Long userRowId, Asset settlement, Asset asset, long shortfall, LocalDateTime at) {
+        boolean same = settlement == null || settlement.sameCurrencyAs(asset);
+        long amountKrw = same && settlement != null
+            ? settlement.toKrw(shortfall)
+            : asset.toKrw(shortfall);
+        return new AssetServiceDto.CreateTransferCommand(
+            userRowId, settlement != null ? settlement.getRowId() : null, asset.getRowId(),
+            amountKrw, 0L, 0L, SETTLEMENT_TRANSFER_DESC, at,
+            "TRADE_SETTLEMENT", same ? null : shortfall);
     }
 
     // === 내부 ===================================================================

@@ -212,11 +212,29 @@ public class AssetTrade extends AuditingFieldsWithIp {
         return asset;
     }
 
+    /** 이 거래가 예수금(자산 통화)에 준 증감 — {@link #cashDeltaOf} 와 같은 식. */
     public long cashDelta() {
-        return switch (tradeType) {
+        return cashDeltaOf(asset, tradeType,
+            amount != null ? amount : 0L, fee != null ? fee : 0L);
+    }
+
+    /**
+     * 매매가 예수금(CASH, <b>자산 통화</b>)에 주는 증감.
+     *
+     * <p>거래대금 · 수수료는 원화다(웹 · 앱 칸이 "원", SQL 정의 원화). 외화 계좌의 예수금은 자산
+     * 통화로 쌓이므로 <b>합친 뒤 한 번만</b> 환율로 나눈다 — 매수 {@code −round((amount + fee) ÷ 환율)},
+     * 매도 {@code +round((amount − fee) ÷ 환율)}, HALF_UP 정수 1단위. 원화 자산(환율 1)은 지금 식 그대로다.
+     * 원가(totalCost) · 실현손익은 원화 그대로 — 여기서 나누는 건 예수금 한 자리뿐이다.
+     */
+    public static long cashDeltaOf(Asset asset, TradeType type, long amount, long fee) {
+        long krw = switch (type) {
             case BUY -> -(amount + fee);
             case SELL -> amount - fee;
             case OPENING -> 0L;
         };
+        if (krw == 0L || asset == null) {
+            return krw;
+        }
+        return asset.krwToAssetCurrency(krw);
     }
 }
