@@ -59,14 +59,14 @@ class SubscriptionApiControllerTest {
                 "SECURITIES", "증권 플랜", "ACTIVE",
                 LocalDateTime.of(2026, 7, 1, 0, 0),
                 LocalDateTime.of(2026, 8, 1, 0, 0),
-                true);
+                true, 9900, 1);
     }
 
     @Test
     @DisplayName("GET /subscriptions/plans — 활성 플랜 목록 조회")
     void getPlans() throws Exception {
         given(subscriptionService.getActivePlans()).willReturn(List.of(
-                new SubscriptionService.PlanInfo("SECURITIES", "증권 플랜", 1)));
+                new SubscriptionService.PlanInfo("SECURITIES", "증권 플랜", 1, 9900)));
 
         mockMvc.perform(get("/api/v1/subscriptions/plans"))
                 .andExpect(status().isOk())

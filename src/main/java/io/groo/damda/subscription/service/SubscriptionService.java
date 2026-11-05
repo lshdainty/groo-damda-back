@@ -30,9 +30,9 @@ public interface SubscriptionService {
     /** 판매중(활성) 플랜 목록 — 플랜 화면용. */
     java.util.List<PlanInfo> getActivePlans();
 
-    record PlanInfo(String planCode, String planName, Integer durationMonths) {
+    record PlanInfo(String planCode, String planName, Integer durationMonths, Integer price) {
         public static PlanInfo from(io.groo.damda.subscription.domain.SubscriptionPlan p) {
-            return new PlanInfo(p.getPlanCode(), p.getPlanName(), p.getDurationMonths());
+            return new PlanInfo(p.getPlanCode(), p.getPlanName(), p.getDurationMonths(), p.getPrice());
         }
     }
 
@@ -42,7 +42,9 @@ public interface SubscriptionService {
         String status,
         LocalDateTime startedAt,
         LocalDateTime currentPeriodEnd,
-        boolean autoRenew
+        boolean autoRenew,
+        Integer price,
+        Integer durationMonths
     ) {
         public static SubscriptionInfo from(UserSubscription s) {
             return new SubscriptionInfo(
@@ -51,7 +53,9 @@ public interface SubscriptionService {
                 s.getStatus().name(),
                 s.getStartedAt(),
                 s.getCurrentPeriodEnd(),
-                s.getAutoRenew() == YNType.Y
+                s.getAutoRenew() == YNType.Y,
+                s.getPlan().getPrice(),
+                s.getPlan().getDurationMonths()
             );
         }
     }
