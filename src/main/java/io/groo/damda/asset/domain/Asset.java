@@ -241,13 +241,72 @@ public class Asset extends AuditingFieldsWithIp {
      * 예수금 100 → 130,000원. 원화 자산은 환산율이 1이라 cash + holding 그대로다.
      */
     public long balanceInKrw(long cash, long holding) {
-        if (exchangeRate == null || BigDecimal.ONE.compareTo(exchangeRate) == 0) {
-            return cash + holding;
+        return toKrw(cash) + holding;
+    }
+
+    /** 환산이 필요 없는가 — 환율이 없거나 0 이하(정규화 전 값 방어)거나 정확히 1. */
+    private boolean isIdentityRate() {
+        return exchangeRate == null || exchangeRate.signum() <= 0
+            || BigDecimal.ONE.compareTo(exchangeRate) == 0;
+    }
+
+    /**
+     * 자산 통화 금액 → 원화. {@code round(units × 환산율, HALF_UP)}, 원 단위 정수.
+     * 원화 자산 · 환율 없음은 그대로.
+     */
+    public long toKrw(long units) {
+        if (isIdentityRate()) {
+            return units;
         }
-        long cashKrw = exchangeRate.multiply(BigDecimal.valueOf(cash))
+        return exchangeRate.multiply(BigDecimal.valueOf(units))
             .setScale(0, java.math.RoundingMode.HALF_UP)
             .longValueExact();
-        return cashKrw + holding;
+    }
+
+    /**
+     * 원화 금액 → 이 자산 통화 금액(정수 1단위). {@code round(krw ÷ 환산율, HALF_UP)}.
+     *
+     * <p>매매 대금 · 수입지출 금액 · 이체 금액은 원화로 들어온다(웹 · 앱 칸이 "원"). 외화 자산의
+     * 예수금(CASH)은 자산 통화로 쌓이므로, 잔액 이력에 적기 전에 이 함수 하나로 나눈다 — 매매 ·
+     * 수입지출 · 이체가 같은 식을 쓴다. 원화 자산 · 환율 없음(1)은 그대로라 지금 결과와 같다.
+     *
+     * <p>예: USD · 1,300 에서 1,300,000원 → 1,000. 1,000,000원 → 769.23 → 769.
+     * 부호는 그대로 따른다(−1,300,000원 → −1,000).
+     */
+    public long krwToAssetCurrency(long krw) {
+        if (isIdentityRate()) {
+            return krw;
+        }
+        return BigDecimal.valueOf(krw)
+            .divide(exchangeRate, 0, java.math.RoundingMode.HALF_UP)
+            .longValueExact();
+    }
+
+    /**
+     * 원화로 적힌 거래 금액을 이 자산 통화로 — 거래가 이미 이 자산 통화의 원 통화 금액을 들고 있으면
+     * 그 값을 쓴다(이중 환산 방지).
+     *
+     * <p>USD 계좌의 $5 지출은 {@code originalAmount = 5 · originalCurrency = USD · amount = 6,500원}
+     * 으로 온다. 원화 6,500 을 계좌 환율로 다시 나누면 거래 환율과 계좌 환율이 다를 때 $5 가 아닌
+     * 값이 될 수 있어, 통화가 같으면 원 통화 금액(정수로 HALF_UP)을 그대로 쓴다. 통화가 다르면
+     * (원화 결제 · EUR 결제를 USD 계좌로) 원화 금액 ÷ 계좌 환율이다.
+     */
+    public long expenseAmountInAssetCurrency(long krw, BigDecimal originalAmount, String originalCurrency) {
+        if (!isForeignCurrency()) {
+            return krw;
+        }
+        if (originalAmount != null && originalCurrency != null
+                && originalCurrency.equalsIgnoreCase(currency)) {
+            return originalAmount.setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+        return krwToAssetCurrency(krw);
+    }
+
+    /** 두 자산의 통화가 같은가 — 비어 있으면 원화로 본다. */
+    public boolean sameCurrencyAs(Asset other) {
+        String a = currency == null || currency.isBlank() ? "KRW" : currency;
+        String b = other == null || other.currency == null || other.currency.isBlank() ? "KRW" : other.currency;
+        return a.equalsIgnoreCase(b);
     }
 
     /**

@@ -462,7 +462,9 @@ public class AssetApiDto {
         /** 시스템이 만든 이체의 출처 (TRADE_SETTLEMENT). null 이면 사용자가 만든 이체 — 값이 있으면 수정·삭제가 잠긴다. */
         String autoSource,
         LocalDateTime transferDate,
-        LocalDateTime createAt
+        LocalDateTime createAt,
+        /** 받는 쪽 자산 통화로 받은 금액. null 이면 amount 와 같은 값을 받았다(같은 통화 · 기존 이체). */
+        Long toAmount
     ) {
         public static TransferResponse from(AssetServiceDto.TransferInfo info) {
             return new TransferResponse(
@@ -471,7 +473,8 @@ public class AssetApiDto {
                 info.toAssetRowId(), info.toAssetName(),
                 info.amount(), info.fee(), info.interestAmount(), info.principalAmount(), info.description(),
                 info.autoSource(),
-                info.transferDate(), info.createAt()
+                info.transferDate(), info.createAt(),
+                info.toAmount()
             );
         }
     }

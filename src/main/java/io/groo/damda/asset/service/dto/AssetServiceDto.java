@@ -428,8 +428,22 @@ public class AssetServiceDto {
          * 시스템이 만드는 이체면 그 출처 (TRADE_SETTLEMENT). 사용자가 만드는 이체는 null.
          * 값이 있으면 이후 수정·삭제가 잠긴다.
          */
-        String autoSource
-    ) {}
+        String autoSource,
+        /**
+         * 받는 쪽 자산 통화 금액을 <b>서버 안에서</b> 못 박을 때만 (매수 충당 이체). null 이면 서버가 정한다 —
+         * 두 자산 통화가 다르면 amount(원화) ÷ 받는 쪽 환율, 같으면 저장하지 않는다(NULL).
+         * 사용자 요청(컨트롤러)은 이 값을 싣지 않는다.
+         */
+        Long toAmount
+    ) {
+        /** 받는 금액을 서버가 정하는 보통 이체. */
+        public CreateTransferCommand(Long userRowId, Long fromAssetRowId, Long toAssetRowId,
+                                     Long amount, Long fee, Long interestAmount, String description,
+                                     LocalDateTime transferDate, String autoSource) {
+            this(userRowId, fromAssetRowId, toAssetRowId, amount, fee, interestAmount, description,
+                transferDate, autoSource, null);
+        }
+    }
 
     public record TransferInfo(
         Long rowId,
@@ -451,7 +465,12 @@ public class AssetServiceDto {
          */
         String autoSource,
         LocalDateTime transferDate,
-        LocalDateTime createAt
+        LocalDateTime createAt,
+        /**
+         * 받는 쪽 자산 통화로 받은 금액. null 이면 보낸 금액과 같다(같은 통화 · 기존 이체).
+         * 두 자산 통화가 다를 때만 값이 있다 — 예: 원화 1,300,000 → USD 계좌(1,300) 는 1,000.
+         */
+        Long toAmount
     ) {
         public static TransferInfo from(AssetTransfer transfer) {
             return new TransferInfo(
@@ -468,7 +487,8 @@ public class AssetServiceDto {
                 transfer.getDescription(),
                 transfer.getAutoSource(),
                 transfer.getTransferDate(),
-                transfer.getCreateAt()
+                transfer.getCreateAt(),
+                transfer.getToAmount()
             );
         }
     }

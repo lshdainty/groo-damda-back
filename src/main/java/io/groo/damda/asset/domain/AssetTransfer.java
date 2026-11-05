@@ -45,6 +45,16 @@ public class AssetTransfer extends AuditingFieldsWithIp {
     @Column(name = "amount", nullable = false)
     private Long amount;
 
+    /**
+     * 받는 쪽 자산 통화 금액. <b>NULL 이면 보낸 금액과 같다</b>(같은 통화 · 칸이 생기기 전 이체 — 지금 해석).
+     *
+     * <p>이체 금액(amount) · 수수료 · 이자는 원화로 들어온다(웹 · 앱 칸이 "원"). 두 자산 통화가 다르면
+     * 받는 쪽 환율로 나눈 값을 만들 때 박아 둔다 — 나중에 계좌 환율을 고쳐도 지난 이체의 받은 금액이
+     * 흔들리지 않는다. 원화 1,300,000 → USD(1,300) 계좌 = 1,000.
+     */
+    @Column(name = "to_amount")
+    private Long toAmount;
+
     @Column(name = "fee", nullable = false)
     private Long fee;
 
@@ -113,6 +123,43 @@ public class AssetTransfer extends AuditingFieldsWithIp {
      */
     public long principalAmount() {
         return amount - (interestAmount != null ? interestAmount : 0L);
+    }
+
+    /**
+     * 받는 금액을 정한다 — 두 자산 통화가 다르면 원화 amount ÷ 받는 쪽 환율(HALF_UP), 같으면 NULL.
+     *
+     * @param override 서버 안에서 받는 금액을 못 박을 때(매수 충당). null 이면 위 규칙
+     */
+    public void resolveToAmount(Long override) {
+        if (fromAsset == null || toAsset == null || fromAsset.sameCurrencyAs(toAsset)) {
+            this.toAmount = null;
+            return;
+        }
+        this.toAmount = override != null ? override : toAsset.krwToAssetCurrency(amount);
+    }
+
+    /**
+     * 출금 자산 잔액 증감(출금 자산 통화) — {@code −round((amount + fee) ÷ 출금 쪽 환율)}.
+     * 원화 자산은 {@code −(amount + fee)} 그대로.
+     */
+    public long fromBalanceDelta() {
+        long fee0 = fee != null ? fee : 0L;
+        return -fromAsset.krwToAssetCurrency(amount + fee0);
+    }
+
+    /**
+     * 입금 자산 잔액 증감(입금 자산 통화) — 이자를 뺀 원금만.
+     *
+     * <p>to_amount 가 있으면(통화가 다름) 그것에서 이자를 받는 쪽 환율로 바꿔 뺀다. NULL 이면(같은
+     * 통화) 보낸 쪽과 같은 값을 받는다 — 출금 쪽 환율로 바꾼다. 두 같은 통화 계좌의 환율이 서로
+     * 달라도 보낸 만큼 받는다. 원화끼리는 {@code amount − interest} 그대로(지금 해석).
+     */
+    public long toBalanceDelta() {
+        long interest = interestAmount != null ? interestAmount : 0L;
+        if (toAmount != null) {
+            return toAmount - (interest == 0L ? 0L : toAsset.krwToAssetCurrency(interest));
+        }
+        return fromAsset.krwToAssetCurrency(amount) - (interest == 0L ? 0L : fromAsset.krwToAssetCurrency(interest));
     }
 
     /** 자동 생성한 이자 지출 거래를 연결한다. */

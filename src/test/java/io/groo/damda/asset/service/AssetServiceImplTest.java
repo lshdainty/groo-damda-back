@@ -620,4 +620,77 @@ class AssetServiceImplTest {
             .isInstanceOf(InvalidValueException.class);
         assertThat(transfer.getIsDeleted()).isEqualTo(YNType.N);
     }
+
+    // ── 통화가 다른 이체 — 받는 금액(to_amount) ─────────────────────────
+
+    @Nested
+    @DisplayName("통화가 다른 두 자산 이체 — 받는 쪽 금액을 받는 쪽 환율로 박아 둔다")
+    class CrossCurrencyTransfer {
+
+        private Asset real(long rowId, String currency, String rate) {
+            Asset a = Asset.createAsset(user(USER_ID), currency + rowId, AssetType.BANK_ACCOUNT, 0L, currency,
+                rate != null ? new java.math.BigDecimal(rate) : null,
+                null, null, null, 0, YNType.Y, null, null, null, null);
+            ReflectionTestUtils.setField(a, "rowId", rowId);
+            given(assetRepository.findById(rowId)).willReturn(Optional.of(a));
+            return a;
+        }
+
+        @Test
+        @DisplayName("createTransfer 원 → USD(1,300) 1,300,000원 — to_amount 1,000 이 저장 · 응답에 실린다")
+        void createStoresToAmount() {
+            real(10L, "KRW", null);
+            real(11L, "USD", "1300");
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            org.mockito.ArgumentCaptor<AssetTransfer> captor = org.mockito.ArgumentCaptor.forClass(AssetTransfer.class);
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 1_300_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            verify(assetTransferRepository).save(captor.capture());
+            assertThat(captor.getValue().getToAmount()).isEqualTo(1_000L);
+            assertThat(info.toAmount()).isEqualTo(1_000L);
+            assertThat(info.amount()).isEqualTo(1_300_000L);  // 보낸 금액(원화)은 그대로
+        }
+
+        @Test
+        @DisplayName("createTransfer 원 → 원 — to_amount NULL(지금 해석)")
+        void createSameCurrencyKeepsNull() {
+            real(10L, "KRW", null);
+            real(11L, "KRW", null);
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+            var info = sut.createTransfer(new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 30_000L, 0L, 0L, "이체",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+
+            assertThat(info.toAmount()).isNull();
+        }
+
+        @Test
+        @DisplayName("updateTransfer — 받는 쪽을 USD 에서 원화 계좌로 바꾸면 to_amount 가 NULL, 금액을 바꾸면 다시 환산")
+        void updateRecomputesToAmount() {
+            Asset krw = real(10L, "KRW", null);
+            Asset usd = real(11L, "USD", "1300");
+            real(12L, "KRW", null);
+            AssetTransfer transfer = transferOf(5L, krw, usd, 1_300_000L, null);
+            transfer.resolveToAmount(null);
+            assertThat(transfer.getToAmount()).isEqualTo(1_000L);
+            given(assetTransferRepository.findById(5L)).willReturn(Optional.of(transfer));
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 11L, 2_600_000L, 0L, 0L, "환전",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+            assertThat(transfer.getToAmount()).isEqualTo(2_000L);
+
+            sut.updateTransfer(5L, new AssetServiceDto.CreateTransferCommand(
+                USER_ID, 10L, 12L, 50_000L, 0L, 0L, "이체",
+                LocalDate.of(2026, 11, 6).atStartOfDay(), null));
+            assertThat(transfer.getToAmount()).isNull();
+            // 옛 기록은 매번 걷고 새 값으로 다시 적는다.
+            verify(balanceHistoryService, org.mockito.Mockito.times(2)).removeTransfer(5L);
+            verify(balanceHistoryService, org.mockito.Mockito.times(2)).recordTransfer(transfer);
+        }
+    }
 }
