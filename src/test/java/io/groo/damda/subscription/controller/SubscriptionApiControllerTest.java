@@ -59,7 +59,7 @@ class SubscriptionApiControllerTest {
                 "SECURITIES", "증권 플랜", "ACTIVE",
                 LocalDateTime.of(2026, 7, 1, 0, 0),
                 LocalDateTime.of(2026, 8, 1, 0, 0),
-                true);
+                true, 9900, 1);
     }
 
     @Test
