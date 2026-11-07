@@ -6,7 +6,7 @@ package io.groo.damda.export.type;
  *  - THIS_MONTH:    이번 달 1일 ~ 말일
  *  - LAST_MONTH:    지난 달 1일 ~ 말일
  *  - LAST_3_MONTHS: (이번달-2) 1일 ~ 이번 달 말일
- *  - THIS_YEAR:     1월 1일 ~ 이번 달 말일
+ *  - THIS_YEAR:     1월 1일 ~ 12월 31일
  */
 public enum ExportPeriod {
     THIS_MONTH,
