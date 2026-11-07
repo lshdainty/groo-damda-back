@@ -19,7 +19,7 @@ import java.util.Map;
  *   <li><b>발급</b> — 폼 바디가 아니라 <b>쿼리 파라미터</b>로 보내고, 필드명이
  *       {@code appkey}/{@code appsecretkey} 이며 {@code scope=oob} 가 필요하다.</li>
  *   <li><b>헤더</b> — 2026-10-15 문서 개정으로 {@code Bearer} 하나만 싣는다
- *       ({@code x-client-id}/{@code x-client-secret} 불필요). dev 실서버 확인 대기(2026-10-24 기준 미확인) —
+ *       ({@code x-client-id}/{@code x-client-secret} 불필요). dev 실서버 확인됨(2026-11-06 사용자 확인) —
  *       401 이 나면 이 변경을 되돌린다.</li>
  * </ol>
  *
