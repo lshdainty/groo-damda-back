@@ -28,7 +28,7 @@ public class PeriodResolver {
                 yield new DateRange(last.atDay(1), last.atEndOfMonth());
             }
             case LAST_3_MONTHS -> new DateRange(thisMonth.minusMonths(2).atDay(1), thisMonth.atEndOfMonth());
-            case THIS_YEAR -> new DateRange(LocalDate.of(today.getYear(), 1, 1), thisMonth.atEndOfMonth());
+            case THIS_YEAR -> new DateRange(LocalDate.of(today.getYear(), 1, 1), LocalDate.of(today.getYear(), 12, 31));
             case CUSTOM -> {
                 if (customStart == null || customEnd == null) {
                     throw new IllegalArgumentException("기간을 직접 고르려면 시작일과 종료일이 필요해요");
