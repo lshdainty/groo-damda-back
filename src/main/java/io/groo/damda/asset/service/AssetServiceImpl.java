@@ -6,9 +6,11 @@ import io.groo.core.exception.InvalidValueException;
 import io.groo.core.type.YNType;
 import io.groo.damda.asset.domain.Asset;
 import io.groo.damda.asset.domain.AssetHolding;
+import io.groo.damda.asset.domain.AssetTrade;
 import io.groo.damda.asset.domain.AssetTransfer;
 import io.groo.damda.asset.repository.AssetHoldingRepository;
 import io.groo.damda.asset.repository.AssetRepository;
+import io.groo.damda.asset.repository.AssetTradeRepository;
 import io.groo.damda.asset.repository.AssetTransferRepository;
 import io.groo.damda.asset.service.dto.AssetServiceDto;
 import io.groo.damda.asset.type.AssetSignPolicy;
@@ -68,6 +70,7 @@ public class AssetServiceImpl implements AssetService {
     private final AssetRepository assetRepository;
     private final AssetHoldingRepository assetHoldingRepository;
     private final AssetTransferRepository assetTransferRepository;
+    private final AssetTradeRepository assetTradeRepository;
     private final UserRepository userRepository;
     private final CardCatalogRepository cardCatalogRepository;
     // 청구 회차 정합용 — 카드 서비스가 아니라 리포지토리만 참조한다(서비스끼리는 순환).
@@ -482,6 +485,19 @@ public class AssetServiceImpl implements AssetService {
         Asset asset = findAssetOrThrow(assetId);
         validateAssetOwnership(asset, userRowId);
         asset.deleteAsset();
+        // 투자 자산이면 그 매매 기록과, 매도로 앱이 자동으로 만든 실현손익 지출을 함께 정리한다.
+        // 안 지우면 자산이 없는데 가계부에 자동 지출만 남고, 자동 생성 거래라 사용자가 지울 길도 없다.
+        // 매매 취소(deleteTrade)와 같이 soft delete 한다 — 삭제 대상은 TRADE_REALIZED 뿐이다.
+        int removedTrades = 0;
+        for (AssetTrade trade : assetTradeRepository.findActiveByAsset(assetId, YNType.N)) {
+            if (trade.getRealizedExpenseRowId() != null) {
+                expenseRepository.findById(trade.getRealizedExpenseRowId())
+                    .filter(e -> "TRADE_REALIZED".equals(e.getAutoSource()))
+                    .ifPresent(Expense::deleteExpense);
+            }
+            trade.deleteTrade();
+            removedTrades++;
+        }
         // 이 계좌를 결제·연결 계좌로 쓰던 카드는 연결을 끊는다 — 안 끊으면 그 카드의 결제·수정이
         // 지운 계좌를 찾다 404 로 막혔다(QA 30 6).
         int detached = 0;
@@ -492,7 +508,7 @@ public class AssetServiceImpl implements AssetService {
             }
         }
 
-        log.info("자산 삭제 완료: assetId={}, 연결 끊은 카드={}", assetId, detached);
+        log.info("자산 삭제 완료: assetId={}, 연결 끊은 카드={}, 정리한 매매={}", assetId, detached, removedTrades);
     }
 
     /**
