@@ -310,4 +310,34 @@ class AssetServiceSummaryTest {
         assertThat(info.withMonthlyUsedAmount(1L).balanceInKrw()).isEqualTo(135_000L);
         assertThat(info.withCardState(null, false, null, null).balanceInKrw()).isEqualTo(135_000L);
     }
+
+    /** 과거 월(2020-02) 요약 — 전월 말(1월 31일)과 이번 달 말 잔액을 따로 돌려준다. 날짜는 고정이라 시계와 무관하다. */
+    private AssetServiceDto.AssetSummary summaryOf(long lastMonth, long now) {
+        Asset bank = asset(1L, AssetType.BANK_ACCOUNT);
+        given(assetRepository.findByUser(USER_ID)).willReturn(List.of(bank));
+        given(balanceHistoryService.balancesAt(anyCollection(), any(LocalDateTime.class)))
+            .willAnswer(inv -> {
+                LocalDateTime at = inv.getArgument(1);
+                long v = at.getMonthValue() == 1 ? lastMonth : now;
+                return java.util.Map.of(1L, new AssetBalanceHistoryService.Split(v, 0L));
+            });
+        return sut.getAssetSummary(USER_ID, 2020, 2);
+    }
+
+    @Test
+    @DisplayName("순자산 변화율 — 소수 둘째 자리 HALF_UP (36.5051% -> 36.51)")
+    void changePercentHasTwoDecimals() {
+        assertThat(summaryOf(1_000_000L, 1_365_051L).changePercent()).isEqualTo(36.51);
+        assertThat(summaryOf(10_500_000L, 10_900_000L).changePercent()).isEqualTo(3.81);
+    }
+
+    @Test
+    @DisplayName("순자산 변화율 — 음수·0·전월 0·전월 음수는 기존 동작 유지")
+    void changePercentEdgeCases() {
+        assertThat(summaryOf(1_000_000L, 634_949L).changePercent()).isEqualTo(-36.51);
+        assertThat(summaryOf(1_000_000L, 1_000_000L).changePercent()).isEqualTo(0.0);
+        assertThat(summaryOf(0L, 500_000L).changePercent()).isEqualTo(0.0);
+        // 전월이 음수면 |전월| 로 나눈다 — -1,000,000 -> -500,000 은 +50.00%
+        assertThat(summaryOf(-1_000_000L, -500_000L).changePercent()).isEqualTo(50.0);
+    }
 }
