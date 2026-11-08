@@ -1184,6 +1184,50 @@ class ExpenseServiceImplTest {
             assertThatThrownBy(() -> sut.deleteExpense(1L, USER_ID))
                 .isInstanceOf(InvalidValueException.class);
         }
+
+        private Asset assetWith(YNType deleted) {
+            Asset a = mock(Asset.class);
+            org.mockito.Mockito.lenient().when(a.getIsDeleted()).thenReturn(deleted);
+            return a;
+        }
+
+        @Test
+        @DisplayName("증권 자산이 지워졌으면 실현손익(TRADE_REALIZED)은 사용자가 지울 수 있다")
+        void canDeleteRealizedOfDeletedAsset() {
+            Expense e = autoExpense();
+            given(e.getAutoSource()).willReturn("TRADE_REALIZED");
+            Asset aY = assetWith(YNType.Y);
+            given(e.getAsset()).willReturn(aY);
+
+            sut.deleteExpense(1L, USER_ID);
+
+            then(e).should().deleteExpense();
+        }
+
+        @Test
+        @DisplayName("자산이 살아 있거나 다른 자동 출처(대출 이자)면 자산이 지워져도 삭제는 거부된다")
+        void stillRejectedWhenAssetAliveOrOtherSource() {
+            Expense e = autoExpense();
+            given(e.getAutoSource()).willReturn("TRADE_REALIZED");
+            Asset aN = assetWith(YNType.N);
+            given(e.getAsset()).willReturn(aN);
+            assertThatThrownBy(() -> sut.deleteExpense(1L, USER_ID)).isInstanceOf(InvalidValueException.class);
+
+            // 출처가 다르면 자산 삭제 여부를 보기 전에 거부된다 — 자산이 지워졌어도 풀지 않는다.
+            given(e.getAutoSource()).willReturn("LOAN_INTEREST");
+            assertThatThrownBy(() -> sut.deleteExpense(1L, USER_ID)).isInstanceOf(InvalidValueException.class);
+            then(e).should(never()).deleteExpense();
+        }
+
+        @Test
+        @DisplayName("자동 생성 거래의 환불 마크는 삭제 잠금 해제와 무관하게 막힌다(수정 잠금은 위 시험이 지킨다)")
+        void refundStillLockedForDeletedAsset() {
+            Expense e = autoExpense();
+            given(e.getExpenseType()).willReturn(io.groo.damda.expense.type.ExpenseType.EXPENSE);
+
+            assertThatThrownBy(() -> sut.refund(1L, USER_ID, null))
+                .isInstanceOf(InvalidValueException.class);
+        }
     }
 
     /**
