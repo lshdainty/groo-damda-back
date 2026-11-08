@@ -100,16 +100,17 @@ class AssetApiControllerTest {
         java.time.LocalDateTime at = java.time.LocalDateTime.of(2026, 11, 6, 10, 0);
         AssetServiceDto.TransferInfo cross = new AssetServiceDto.TransferInfo(
                 7L, 1L, 10L, "통장", 11L, "달러 계좌", 1_300_000L, 0L, 0L, 1_300_000L,
-                "환전", null, at, at, 1_000L);
+                "환전", null, at, at, 1_000L, true);
         AssetServiceDto.TransferInfo same = new AssetServiceDto.TransferInfo(
                 8L, 1L, 10L, "통장", 12L, "적금", 50_000L, 0L, 0L, 50_000L,
-                "이체", null, at, at, null);
+                "이체", null, at, at, null, true);
         given(assetService.getTransfers(eq(1L), any(), any())).willReturn(List.of(cross, same));
         given(assetService.createTransfer(any())).willReturn(cross);
 
         mockMvc.perform(get("/api/v1/asset-transfers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.transfers[0].toAmount").value(1000))
+                .andExpect(jsonPath("$.data.transfers[0].deletable").value(true))
                 .andExpect(jsonPath("$.data.transfers[0].amount").value(1300000))
                 .andExpect(jsonPath("$.data.transfers[0].principalAmount").value(1300000))
                 .andExpect(jsonPath("$.data.transfers[1].toAmount").doesNotExist());

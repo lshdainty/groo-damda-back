@@ -84,7 +84,8 @@ class ExpenseTemplateApiControllerTest {
             null, null, // cardSettledThrough · recordOnlyAmount — 기록용 아님
             false,      // moneyLocked — 결제 전
             false,      // replaceable — 잠기지 않았다
-            false);     // isFixed — 변동
+            false,      // isFixed — 변동
+            true);      // deletable — 손으로 쓴 거래
     }
 
     @Test

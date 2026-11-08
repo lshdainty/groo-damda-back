@@ -195,7 +195,9 @@ public class ExpenseApiDto {
          */
         boolean replaceable,
         /** 고정 수입·지출 여부 — 통계가 전체·고정·변동으로 가른다. */
-        boolean isFixed
+        boolean isFixed,
+        /** 지금 사용자가 직접 지울 수 있는가 — 손으로 쓴 거래는 true, 자동 생성은 그 증권 자산이 삭제된 실현손익일 때만 true. 삭제 버튼은 이것으로 가른다. */
+        boolean deletable
     ) {
         public static Response from(ExpenseServiceDto.ExpenseInfo info) {
             return new Response(
@@ -230,7 +232,8 @@ public class ExpenseApiDto {
                 info.recordOnlyAmount(),
                 info.moneyLocked(),
                 info.replaceable(),
-                info.isFixed()
+                info.isFixed(),
+                info.deletable()
             );
         }
     }
