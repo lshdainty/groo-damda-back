@@ -495,6 +495,15 @@ public class AssetServiceImpl implements AssetService {
                     .filter(e -> "TRADE_REALIZED".equals(e.getAutoSource()))
                     .ifPresent(Expense::deleteExpense);
             }
+            // 예수금 충당 이체도 매매 취소와 같이 지운다 — 앱이 만든 자동 이체(TRADE_SETTLEMENT)라
+            // 사용자가 직접 못 지우고, 안 지우면 은행 쪽에 지운 자산으로 간 이체가 남는다.
+            // deleteTransfer 가 잔액 이력도 함께 되돌린다.
+            if (trade.getSettlementTransferRowId() != null) {
+                assetTransferRepository.findById(trade.getSettlementTransferRowId())
+                    .filter(t -> "TRADE_SETTLEMENT".equals(t.getAutoSource()))
+                    .filter(t -> t.getIsDeleted() != YNType.Y)
+                    .ifPresent(t -> deleteTransfer(t.getRowId(), userRowId));
+            }
             trade.deleteTrade();
             removedTrades++;
         }
