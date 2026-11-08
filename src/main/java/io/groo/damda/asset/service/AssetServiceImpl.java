@@ -1091,7 +1091,7 @@ public class AssetServiceImpl implements AssetService {
         long changeAmount = netWorth - lastMonthNetWorth;
         double changePercent = lastMonthNetWorth == 0
             ? 0.0
-            : Math.round(((double) changeAmount / Math.abs(lastMonthNetWorth)) * 1000.0) / 10.0;
+            : Math.round(((double) changeAmount / Math.abs(lastMonthNetWorth)) * 10000.0) / 100.0;
 
         List<AssetServiceDto.AssetTypeSummary> byType = byTypeAcc.entrySet().stream()
             .map(e -> new AssetServiceDto.AssetTypeSummary(e.getKey(), e.getValue()[0], (int) e.getValue()[1]))

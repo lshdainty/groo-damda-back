@@ -391,7 +391,7 @@ public class AssetServiceDto {
         Long netWorth,              // totalAssets - totalDebt
         Long lastMonthNetWorth,     // 이번 달 순수입을 역산해 추정한 지난달 말 순자산
         Long changeAmount,          // netWorth - lastMonthNetWorth (= 이번 달 수입 - 이번 달 지출)
-        Double changePercent,       // changeAmount / |lastMonthNetWorth| * 100 (소수 1자리). lastMonth==0이면 0.0
+        Double changePercent,       // changeAmount / |lastMonthNetWorth| * 100 (소수 2자리 — 웹·앱 표시 규칙과 같다). lastMonth==0이면 0.0
         List<AssetTypeSummary> byType
     ) {}
 
