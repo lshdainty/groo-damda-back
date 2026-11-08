@@ -176,7 +176,12 @@ public class ExpenseServiceDto {
          */
         boolean replaceable,
         /** 고정 수입·지출 여부. */
-        boolean isFixed
+        boolean isFixed,
+        /**
+         * 사용자가 지금 이 거래를 직접 지울 수 있는가 — 손으로 쓴 거래는 true, 자동 생성은 고아(그 증권
+         * 자산이 삭제된 실현손익)일 때만 true. 삭제 API 의 거부 조건과 같은 함수({@code Expense#isDeletableByUser})로 센다.
+         */
+        boolean deletable
     ) {
         /**
          * 잠금을 붙인 사본 — 잠금은 카드의 회차 결제일을 봐야 해서 서비스가 따로 정한다.
@@ -190,7 +195,7 @@ public class ExpenseServiceDto {
                 installmentMonths, refundedAt, refundTransferRowId, originalAmount, originalCurrency,
                 exchangeRate, calendarEventRowId, todoRowId, autoSource, createAt, modifyAt,
                 splitCategoryRowIds, refundedAmount, cardSettledThrough, recordOnlyAmount, locked, canReplace,
-                isFixed);
+                isFixed, deletable);
         }
 
         public static ExpenseInfo from(Expense expense) {
@@ -236,7 +241,8 @@ public class ExpenseServiceDto {
                 recordOnlyAmountOf(expense),
                 false,
                 false,
-                expense.isFixedTx()
+                expense.isFixedTx(),
+                expense.isDeletableByUser()
             );
         }
 

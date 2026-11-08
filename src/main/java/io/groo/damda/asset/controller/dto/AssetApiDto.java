@@ -465,7 +465,9 @@ public class AssetApiDto {
         LocalDateTime transferDate,
         LocalDateTime createAt,
         /** 받는 쪽 자산 통화로 받은 금액. null 이면 amount 와 같은 값을 받았다(같은 통화 · 기존 이체). */
-        Long toAmount
+        Long toAmount,
+        /** 지금 사용자가 직접 지울 수 있는가 — 손으로 만든 이체는 true, 자동 생성은 받는 증권 자산이 삭제된 충당 이체일 때만 true. */
+        boolean deletable
     ) {
         public static TransferResponse from(AssetServiceDto.TransferInfo info) {
             return new TransferResponse(
@@ -475,7 +477,8 @@ public class AssetApiDto {
                 info.amount(), info.fee(), info.interestAmount(), info.principalAmount(), info.description(),
                 info.autoSource(),
                 info.transferDate(), info.createAt(),
-                info.toAmount()
+                info.toAmount(),
+                info.deletable()
             );
         }
     }

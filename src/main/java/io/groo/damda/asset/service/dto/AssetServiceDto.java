@@ -473,7 +473,9 @@ public class AssetServiceDto {
          * 받는 쪽 자산 통화로 받은 금액. null 이면 보낸 금액과 같다(같은 통화 · 기존 이체).
          * 두 자산 통화가 다를 때만 값이 있다 — 예: 원화 1,300,000 → USD 계좌(1,300) 는 1,000.
          */
-        Long toAmount
+        Long toAmount,
+        /** 사용자가 지금 이 이체를 직접 지울 수 있는가 — {@code AssetTransfer#isDeletableByUser} (삭제 API 거부 조건과 같은 함수). */
+        boolean deletable
     ) {
         public static TransferInfo from(AssetTransfer transfer) {
             return new TransferInfo(
@@ -491,7 +493,8 @@ public class AssetServiceDto {
                 transfer.getAutoSource(),
                 transfer.getTransferDate(),
                 transfer.getCreateAt(),
-                transfer.getToAmount()
+                transfer.getToAmount(),
+                transfer.isDeletableByUser()
             );
         }
     }

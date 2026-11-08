@@ -552,7 +552,7 @@ class RecurringTransactionServiceImplTest {
             return new AssetServiceDto.TransferInfo(
                 rowId, USER_ID, 2L, "예금", 3L, "적금",
                 100_000L, null, null, 100_000L, "적금 이체", null,
-                LocalDateTime.of(2026, 9, 15, 9, 0), LocalDateTime.of(2026, 9, 15, 9, 0), null);
+                LocalDateTime.of(2026, 9, 15, 9, 0), LocalDateTime.of(2026, 9, 15, 9, 0), null, true);
         }
     }
 

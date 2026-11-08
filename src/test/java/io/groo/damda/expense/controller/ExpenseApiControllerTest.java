@@ -79,7 +79,8 @@ class ExpenseApiControllerTest {
             null, null, // cardSettledThrough · recordOnlyAmount — 기록용 아님
             false,      // moneyLocked — 결제 전
             false,      // replaceable — 잠기지 않았다
-            false);     // isFixed — 변동
+            false,      // isFixed — 변동
+            true);      // deletable — 손으로 쓴 거래
     }
 
     @Test
@@ -98,6 +99,7 @@ class ExpenseApiControllerTest {
                 .andExpect(status().isOk())
                 // 키 이름은 isFixed 다 — Jackson 이 boolean 레코드 칸을 fixed 로 바꿔 내보내지 않는지 잠근다.
                 .andExpect(jsonPath("$.data.isFixed").value(false))
+                .andExpect(jsonPath("$.data.deletable").value(true))
                 .andExpect(jsonPath("$.data.fixed").doesNotExist());
 
         ArgumentCaptor<ExpenseServiceDto.CreateCommand> captor =
