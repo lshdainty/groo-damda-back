@@ -257,6 +257,17 @@ management:
   metrics:
     tags:
       application: porest-desk
+    # API별 지연 분포(히스토그램) — Grafana 의 p95·p99 패널이 이 버킷으로 계산한다.
+    # 꺼져 있으면 _count/_sum/_max 만 나가서 "평균"과 "최댓값"밖에 못 본다. 평균은 빠른
+    # 요청에 끌려 내려가 느린 꼬리를 숨긴다. 버킷 범위를 5ms~10s 로 묶어 시계열 수를 줄인다
+    # (기본값은 1ms~30s 라 쓸모없는 버킷까지 uri×status 마다 늘어난다).
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 5ms
+      maximum-expected-value:
+        http.server.requests: 10s
 
 # 배포 버전 (Jenkins 가 git describe 결과를 APP_VERSION 으로 주입)
 # 확인: GET /actuator/info
