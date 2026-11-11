@@ -9,6 +9,7 @@ import io.groo.damda.user.controller.dto.UserApiDto.PreferencesResponse;
 import io.groo.damda.user.controller.dto.UserApiDto.UpdatePreferencesReq;
 import io.groo.damda.user.service.dto.WithdrawalServiceDto.CheckResult;
 import io.groo.damda.user.service.ReauthProxyService;
+import io.groo.damda.user.type.ReauthPurpose;
 import io.groo.damda.user.service.ReauthTicketVerifier;
 import io.groo.damda.user.service.UserService;
 import io.groo.damda.user.service.WithdrawalService;
@@ -321,7 +322,7 @@ class UserApiControllerTest {
     @Test
     @DisplayName("POST /users/me/reauth/email-code/verify — 코드를 넘기고 티켓을 돌려준다")
     void verifyReauthEmailCode() throws Exception {
-        given(reauthProxyService.verifyEmailCode("user1", "123456")).willReturn("ticket-abc");
+        given(reauthProxyService.verifyEmailCode("user1", "123456", ReauthPurpose.WITHDRAW)).willReturn("ticket-abc");
 
         mockMvc.perform(post("/api/v1/users/me/reauth/email-code/verify")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -342,13 +343,13 @@ class UserApiControllerTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(reauthProxyService, org.mockito.Mockito.never()).verifyEmailCode(any(), any());
+        verify(reauthProxyService, org.mockito.Mockito.never()).verifyEmailCode(any(), any(), any());
     }
 
     @Test
     @DisplayName("POST /users/me/reauth/password — 비밀번호를 넘기고 티켓을 돌려준다")
     void verifyReauthPassword() throws Exception {
-        given(reauthProxyService.verifyPassword("user1", "pw")).willReturn("ticket-abc");
+        given(reauthProxyService.verifyPassword("user1", "pw", ReauthPurpose.WITHDRAW)).willReturn("ticket-abc");
 
         mockMvc.perform(post("/api/v1/users/me/reauth/password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -357,6 +358,33 @@ class UserApiControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.reauthToken").value("ticket-abc"));
+    }
+
+    @Test
+    @DisplayName("POST /users/me/reauth/password — purpose=oauth-link 면 연동용 티켓을 받는다(보안 점검 S-2)")
+    void verifyReauthPassword_oauthLinkPurpose() throws Exception {
+        given(reauthProxyService.verifyPassword("user1", "pw", ReauthPurpose.OAUTH_LINK)).willReturn("link-ticket");
+
+        mockMvc.perform(post("/api/v1/users/me/reauth/password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"password":"pw","purpose":"oauth-link"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reauthToken").value("link-ticket"));
+    }
+
+    @Test
+    @DisplayName("POST /users/me/reauth/email-code/verify — 목록에 없는 용도는 400 이고 SSO 까지 안 간다")
+    void verifyReauthEmailCode_unknownPurpose_returns400() throws Exception {
+        mockMvc.perform(post("/api/v1/users/me/reauth/email-code/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"code":"123456","purpose":"anything"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(reauthProxyService, org.mockito.Mockito.never()).verifyEmailCode(any(), any(), any());
     }
 
     @Test
@@ -369,6 +397,6 @@ class UserApiControllerTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(reauthProxyService, org.mockito.Mockito.never()).verifyPassword(any(), any());
+        verify(reauthProxyService, org.mockito.Mockito.never()).verifyPassword(any(), any(), any());
     }
 }

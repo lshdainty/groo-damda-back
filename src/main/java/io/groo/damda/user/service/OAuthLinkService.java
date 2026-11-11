@@ -17,9 +17,10 @@ public interface OAuthLinkService {
      * @param userId    desk 쿠키에서 얻은 사용자 ID(SSO sub)
      * @param provider  연동 제공자(예: google) — SSO 로는 소문자로 전달
      * @param returnUrl 연동 완료 후 돌아올 desk-front 경로(선택, null 허용)
+     * @param reauthToken 재인증 티켓(purpose=oauth-link) — SSO 가 검증한다. 없으면 SSO 가 거절
      * @return SSO 연동 시작 URL(startUrl)
      */
-    String startLink(String userId, String provider, String returnUrl);
+    String startLink(String userId, String provider, String returnUrl, String reauthToken);
 
     /** 연동 가능한 제공자 목록과 사용자별 연동 상태 조회. */
     List<ProviderInfoResp> getProviders(String userId);

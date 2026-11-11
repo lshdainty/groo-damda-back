@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,16 +30,24 @@ public class OAuthLinkApiController {
 
     private final OAuthLinkService oAuthLinkService;
 
-    /** 소셜 계정 연동 시작 — 브라우저가 이동할 SSO 연동 시작 URL 반환. */
+    /**
+     * 소셜 계정 연동 시작 — 브라우저가 이동할 SSO 연동 시작 URL 반환.
+     *
+     * <p>{@code X-Reauth-Token}(재인증 티켓, purpose=oauth-link)을 그대로 SSO 에 넘긴다(보안 점검 S-2).
+     * 검증·단회 처리는 SSO 가 한다 — 여기서 먼저 소모하면 SSO 에 닿기 전에 티켓이 타 버린다. SSO 가 직접
+     * 막으므로 담다를 거치지 않는 호출도 같이 막힌다.
+     */
     @PostMapping("/link/{provider}")
     public ApiResponse<OAuthLinkDto.StartUrlResp> startLink(
             @LoginUser UserPrincipal loginUser,
             @PathVariable String provider,
+            @RequestHeader(value = "X-Reauth-Token", required = false) String reauthToken,
             @RequestBody(required = false) OAuthLinkDto.LinkStartReq request) {
         String startUrl = oAuthLinkService.startLink(
                 loginUser.getUserId(),
                 provider,
-                request == null ? null : request.getReturnUrl()
+                request == null ? null : request.getReturnUrl(),
+                reauthToken
         );
         return ApiResponse.success(OAuthLinkDto.StartUrlResp.builder().startUrl(startUrl).build());
     }

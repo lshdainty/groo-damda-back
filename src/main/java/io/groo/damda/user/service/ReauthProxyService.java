@@ -1,5 +1,7 @@
 package io.groo.damda.user.service;
 
+import io.groo.damda.user.type.ReauthPurpose;
+
 /**
  * 재인증 프록시 — 민감 조작 직전의 본인 확인을 SSO 에 대신 물어본다.
  *
@@ -23,9 +25,9 @@ public interface ReauthProxyService {
      */
     void sendEmailCode(String userId);
 
-    /** 코드 확인 → 재인증 티켓. 코드가 틀리거나 시도를 다 쓰면 400. */
-    String verifyEmailCode(String userId, String code);
+    /** 코드 확인 → {@code purpose} 용 재인증 티켓. 코드가 틀리거나 시도를 다 쓰면 400. */
+    String verifyEmailCode(String userId, String code, ReauthPurpose purpose);
 
-    /** 비밀번호 확인 → 재인증 티켓. 틀리면 400. */
-    String verifyPassword(String userId, String password);
+    /** 비밀번호 확인 → {@code purpose} 용 재인증 티켓. 틀리면 400. */
+    String verifyPassword(String userId, String password, ReauthPurpose purpose);
 }

@@ -47,7 +47,7 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
     private final RestTemplate ssoRestTemplate;
 
     @Override
-    public String startLink(String userId, String provider, String returnUrl) {
+    public String startLink(String userId, String provider, String returnUrl, String reauthToken) {
         // SSO 호출용 서비스 토큰(RS256)을 client_credentials 그랜트로 발급
         String serviceToken = ssoOAuth2Client.issueServiceToken();
 
@@ -56,9 +56,11 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
         headers.setBearerAuth(serviceToken);
 
         // 서비스 토큰에는 사용자 식별자가 없으므로 대상 userId 를 body 에 담아 전달
+        // 재인증 티켓은 SSO 가 검증·소모한다(보안 점검 S-2). 없으면 빈 값으로 보내 SSO 가 거절하게 둔다.
         Map<String, String> requestBody = Map.of(
                 "userId", userId,
-                "returnUrl", returnUrl == null ? "" : returnUrl
+                "returnUrl", returnUrl == null ? "" : returnUrl,
+                "reauthToken", reauthToken == null ? "" : reauthToken
         );
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(requestBody, headers);
 
