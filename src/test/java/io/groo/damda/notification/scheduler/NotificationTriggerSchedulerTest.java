@@ -172,6 +172,28 @@ class NotificationTriggerSchedulerTest {
     }
 
     @Test
+    @DisplayName("예산 한도와 정확히 같으면 초과가 아니다 — 근접 문장(100%)으로 나간다(2026-11-11)")
+    void budgetExactlyAtLimitIsNotOver() {
+        givenCategoryBudget(10_000L, 10_000L, 85, "식비");
+
+        scheduler().checkBudgetAlerts();
+
+        NotificationServiceDto.CreateCommand cmd = captureOne();
+        assertThat(cmd.title()).isEqualTo("식비 예산 100% 사용");
+        assertThat(cmd.title()).doesNotContain("초과");
+    }
+
+    @Test
+    @DisplayName("예산 한도 +1 은 초과 문장")
+    void budgetOneAboveLimitIsOver() {
+        givenCategoryBudget(10_000L, 10_001L, 85, "식비");
+
+        scheduler().checkBudgetAlerts();
+
+        assertThat(captureOne().title()).isEqualTo("식비 예산 초과");
+    }
+
+    @Test
     @DisplayName("카테고리 없는(월 전체) 예산 이름도 번들에서 온다 — 코드에 박힌 `전체` 를 뺐다")
     void overallBudgetNameComesFromTheBundle() {
         User u = user();

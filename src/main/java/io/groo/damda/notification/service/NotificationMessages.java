@@ -89,7 +89,7 @@ public class NotificationMessages {
     // ── 공통 ─────────────────────────────────────────────────────────────────
 
     /**
-     * WARN 알림에 <b>표시할</b> 사용률(%). 초과(=100%)는 OVER 분기가 맡으므로 99 에서 자른다 —
+     * WARN 알림에 <b>표시할</b> 사용률(%). 초과(한도보다 큼)는 OVER 분기가 맡으므로 한도 미만은 99 에서 자른다(한도와 같으면 100) —
      * 안 자르면 99.5% 가 반올림돼 "100% 사용" 으로 나가 초과와 구분이 안 된다.
      *
      * <p>거래 저장 경로와 배치가 같은 상황에서 같은 숫자를 말하도록 계산도 여기서 한 벌만 둔다
@@ -97,6 +97,8 @@ public class NotificationMessages {
      */
     public static int usagePercent(long spent, long limit) {
         if (limit <= 0) return 0;
+        // 한도와 정확히 같을 땐 초과가 아니라 WARN 이 받는다 — 99 로 자르면 "99% 사용 (10,000 / 10,000원)" 이 된다.
+        if (spent == limit) return 100;
         // 정수 반올림: (a*100 + limit/2) / limit == round(a/limit*100)
         return (int) Math.min(99L, (spent * 100L + limit / 2) / limit);
     }

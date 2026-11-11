@@ -81,6 +81,8 @@ class NotificationMessagesTest {
         assertThat(NotificationMessages.usagePercent(8_999L, 10_000L)).isEqualTo(90);
         assertThat(NotificationMessages.usagePercent(9_950L, 10_000L)).isEqualTo(99);
         assertThat(NotificationMessages.usagePercent(9_999L, 10_000L)).isEqualTo(99);
+        // 한도와 정확히 같으면 초과가 아니라 WARN 이 받으므로 100 으로 말한다(2026-11-11).
+        assertThat(NotificationMessages.usagePercent(10_000L, 10_000L)).isEqualTo(100);
         // 0 나눗셈 방어 — 예산 0 은 호출부에서 걸러지지만 여기서도 죽지 않는다.
         assertThat(NotificationMessages.usagePercent(1_000L, 0L)).isZero();
     }
