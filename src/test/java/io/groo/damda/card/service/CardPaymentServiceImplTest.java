@@ -589,6 +589,10 @@ class CardPaymentServiceImplTest {
         Asset card = creditCard(12);
         given(card.getPaymentAsset()).willReturn(paymentAsset);
         given(assetRepository.findById(CARD_ID)).willReturn(Optional.of(card));
+        // 오늘을 고정한다 — 서비스는 서울 시계(serviceClock)로 회차를 정하는데 기대값을 LocalDate.now()(JVM 시간대)로
+        // 계산하면, 서울만 결제일(12일)로 넘어간 시각(UTC 15시~자정)에 하루 어긋나 실패했다(2026-11-12 00:03 KST CI).
+        LocalDate today = LocalDate.of(2026, 8, 24);
+        doReturn(today).when(serviceClock).today();
         givenCycleSpend(70_000L);
         givenCardBalance(-70_000L);
         given(cardBillingRepository.sumCompletedAmountByCardAndPeriod(eq(CARD_ID), any(), any()))
@@ -607,7 +611,8 @@ class CardPaymentServiceImplTest {
         CardBilling saved = captor.getValue();
 
         // 다가오는 결제일(nextPaymentDate)의 회차 = 그 결제일의 전월 1일~말일
-        LocalDate next = CardPaymentServiceImpl.nextPaymentDate(12, LocalDate.now());
+        LocalDate next = CardPaymentServiceImpl.nextPaymentDate(12, today);
+        assertThat(next).isEqualTo(LocalDate.of(2026, 9, 12));
         assertThat(saved.getPeriodStart()).isEqualTo(CardPaymentServiceImpl.periodStartFor(next));
         assertThat(saved.getPeriodEnd()).isEqualTo(CardPaymentServiceImpl.periodEndFor(next));
         assertThat(saved.getBillingAmount()).isEqualTo(70_000L);

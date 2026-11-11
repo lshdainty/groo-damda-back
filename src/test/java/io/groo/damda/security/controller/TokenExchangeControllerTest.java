@@ -35,6 +35,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.groo.damda.security.principal.JwtClaimsPrincipal;
+import io.groo.damda.security.principal.JwtUserPrincipal;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.test.context.TestSecurityContextHolder;
+import java.util.Collections;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+
 /**
  * TokenExchangeController — embed-token 엔드포인트 슬라이스 테스트.
  * 인증된 사용자(@WithLoginUser) → JwtTokenProvider.createEmbedToken 호출 + 응답 본문 검증.
@@ -69,9 +77,9 @@ class TokenExchangeControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/embed-token — 로그인 사용자 정보로 createEmbedToken 호출 + 60초 만료 응답")
+    @DisplayName("POST /api/v1/auth/embed-token — 로그인 사용자 정보 + 부모 세션(jti)으로 createEmbedToken 호출 + 60초 만료 응답")
     void issueEmbedToken_callsProviderWithLoginUser() throws Exception {
-        given(jwtTokenProvider.createEmbedToken(eq("user7"), eq("User7"), eq("u7@e.com"), eq(7L)))
+        given(jwtTokenProvider.createEmbedToken(eq("user7"), eq("User7"), eq("u7@e.com"), eq(7L), eq("test-session")))
                 .willReturn("EMBED_JWT_TOKEN");
 
         mockMvc.perform(post("/api/v1/auth/embed-token"))
@@ -79,7 +87,22 @@ class TokenExchangeControllerTest {
                 .andExpect(jsonPath("$.data.token").value("EMBED_JWT_TOKEN"))
                 .andExpect(jsonPath("$.data.expiresIn").value(60));
 
-        verify(jwtTokenProvider).createEmbedToken("user7", "User7", "u7@e.com", 7L);
+        // 부모 세션을 실어야 로그아웃하면 임베드 토큰도 같이 막힌다(S-3)
+        verify(jwtTokenProvider).createEmbedToken("user7", "User7", "u7@e.com", 7L, "test-session");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/embed-token — 임베드 토큰으로는 403, 새 토큰을 내주지 않는다(60초마다 스스로 연장되던 구멍)")
+    void issueEmbedToken_rejectsEmbedPrincipal() throws Exception {
+        JwtUserPrincipal embed = new JwtUserPrincipal(new JwtClaimsPrincipal(
+                "user7", "User7", "u7@e.com", 7L, "embed", "test-session"));
+        TestSecurityContextHolder.setAuthentication(
+                new UsernamePasswordAuthenticationToken(embed, null, Collections.emptyList()));
+
+        mockMvc.perform(post("/api/v1/auth/embed-token"))
+                .andExpect(status().isForbidden());
+
+        verify(jwtTokenProvider, never()).createEmbedToken(any(), any(), any(), any(), any());
     }
 
     @Test

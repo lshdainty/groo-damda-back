@@ -163,13 +163,77 @@ class JwtAuthenticationFilterRevocationTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
     }
 
+    private MockHttpServletResponse runBearer(String method, String uri, String token) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        sut.doFilter(request, response, new MockFilterChain());
+        return response;
+    }
+
+    private String embedToken(String sessionId) {
+        return jwtTokenProvider.createEmbedToken("tester", "테스터", "tester@porest.com", 7L, sessionId);
+    }
+
     @Test
-    @DisplayName("임베드 토큰도 표식을 조회하지 않는다 — 세션에 속하지 않는 60초 토큰이다")
-    void embedToken_skipsLookup() throws Exception {
-        run(jwtTokenProvider.createEmbedToken("tester", "테스터", "tester@porest.com", 7L));
+    @DisplayName("임베드 토큰은 부모 세션이 로그아웃되면 막힌다 — 예전엔 jti 가 없어 폐기 검사를 건너뛰었다(S-3)")
+    void embedToken_revokedParentSession_isNotAuthenticated() throws Exception {
+        revoked();
+
+        runBearer("GET", "/api/v1/securities/candles", embedToken(SESSION_ID));
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("임베드 토큰은 살아 있는 세션이면 차트 조회 3곳(GET)에서 인증된다")
+    void embedToken_liveSession_candlePathsAuthenticate() throws Exception {
+        given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
+
+        for (String path : new String[]{"/api/v1/securities/candles", "/api/v1/toss/candles", "/api/v1/namu/candles"}) {
+            SecurityContextHolder.clearContext();
+            runBearer("GET", path, embedToken(SESSION_ID));
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).as(path).isNotNull();
+        }
+    }
+
+    @Test
+    @DisplayName("임베드 토큰은 차트 조회 밖에서는 인증되지 않는다 — 가계부·토큰 재발급 등(S-3)")
+    void embedToken_otherPaths_areNotAuthenticated() throws Exception {
+        given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
+
+        String[][] cases = {
+                {"POST", "/api/v1/auth/embed-token"},   // 스스로 연장하던 자리
+                {"GET", "/api/v1/expenses"},
+                {"GET", "/api/v1/auth/check"},
+                {"POST", "/api/v1/securities/candles"}, // 경로가 맞아도 GET 만
+                {"GET", "/api/v1/securities/candles/extra"},
+        };
+        for (String[] c : cases) {
+            SecurityContextHolder.clearContext();
+            MockHttpServletResponse response = runBearer(c[0], c[1], embedToken(SESSION_ID));
+            assertThat(SecurityContextHolder.getContext().getAuthentication()).as(c[0] + " " + c[1]).isNull();
+            assertThat(response.getStatus()).as("체인은 흘려보낸다").isEqualTo(200);
+        }
+    }
+
+    @Test
+    @DisplayName("세션 없는 옛 부모에서 나온 임베드 토큰은 표식을 조회하지 않는다 — 부모보다 강해지지도 약해지지도 않는다")
+    void embedTokenWithoutSession_skipsLookup() throws Exception {
+        runBearer("GET", "/api/v1/securities/candles", embedToken(null));
 
         verify(revocationStore, never()).isRevoked(any());
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("임베드 토큰은 쿠키를 갱신하지 않는다 — access 쿠키로 승격되지 않는다")
+    void embedToken_neverRenewsCookie() throws Exception {
+        given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
+
+        MockHttpServletResponse response = runBearer("GET", "/api/v1/securities/candles", embedToken(SESSION_ID));
+
+        assertThat(response.getHeader(HttpHeaders.SET_COOKIE)).isNull();
     }
 
     @Test
