@@ -1,5 +1,7 @@
 package io.groo.damda.common.logging;
 
+import io.groo.core.logging.UpstreamErrorLog;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

@@ -1,5 +1,8 @@
 package io.groo.damda.common.exception;
 
+import io.groo.core.exception.IntegrityViolations;
+import io.groo.core.exception.IntegrityViolationKind;
+
 import io.groo.damda.calendar.domain.EventLabel;
 import io.groo.damda.calendar.repository.EventLabelQueryDslRepository;
 import io.groo.damda.calendar.repository.EventLabelRepository;

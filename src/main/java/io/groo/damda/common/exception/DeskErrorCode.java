@@ -23,11 +23,11 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     INVALID_PARAMETER_VALUE("COMMON_400", "error.common.invalid.parameter.value", HttpStatus.BAD_REQUEST),
     // 필수 파라미터 누락(QA 2026-09-04 #75). 코드도 메시지 키도 core 가 답하던 것과 같다 —
     // 바뀐 건 문구뿐이고, 여기 상수를 두는 이유는 파라미터 이름을 로그에 남기는 책임을
-    // 이 레포가 갖기 위해서다(RequestValueExceptionHandler 주석 참고).
+    // 이 레포가 갖기 위해서다(core GlobalExceptionHandler 주석 참고).
     MISSING_PARAMETER("COMMON_400", "error.common.missing.parameter", HttpStatus.BAD_REQUEST),
     // DB NOT NULL 위반이 여기까지 온 자리(QA 2026-09-07 #81). 종전엔 COMMON_409 "다른 곳에서
     // 먼저 수정됐어요" 로 나가 값을 빼먹은 요청이 경쟁에서 진 것처럼 보였다. 어느 컬럼인지는
-    // 응답에 싣지 않는다(QA #75) — DataIntegrityExceptionHandler 의 로그에만 남는다.
+    // 응답에 싣지 않는다(QA #75) — core GlobalExceptionHandler 의 로그에만 남는다.
     REQUIRED_VALUE_MISSING("COMMON_400", "error.common.required.value.missing", HttpStatus.BAD_REQUEST),
     // DB 외래키 위반(QA 2026-09-07 #81). 없는 것을 가리켰거나, 아직 참조 중인 것을 지우려 한 것이다.
     INVALID_REFERENCE("COMMON_400", "error.common.invalid.reference", HttpStatus.BAD_REQUEST),

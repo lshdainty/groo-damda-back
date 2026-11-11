@@ -188,7 +188,7 @@ public class AssetApiController {
      * 거래({@code ExpenseApiController.parseExpenseDate})와 <b>같은 파서</b>다(QA #101).
      *
      * <p>형식이 어긋나면 {@code DateTimeParseException} 이 그대로 올라가고
-     * {@code RequestValueExceptionHandler} 가 400 "올바른 날짜가 아니에요" 로 받는다.
+     * core 의 {@code GlobalExceptionHandler} 가 400 "올바른 날짜가 아니에요" 로 받는다.
      */
     private static LocalDateTime parseTransferDate(String s) {
         return WallClockDateTimeParser.parse(s);

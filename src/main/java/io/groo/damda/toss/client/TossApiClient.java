@@ -2,7 +2,7 @@ package io.groo.damda.toss.client;
 
 import io.groo.core.exception.ExternalServiceException;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.common.logging.UpstreamErrorLog;
+import io.groo.core.logging.UpstreamErrorLog;
 import io.groo.damda.toss.client.dto.TossEnvelope;
 import io.groo.damda.toss.client.dto.TossErrorBody;
 import io.groo.damda.securities.client.BrokerTokenManager;

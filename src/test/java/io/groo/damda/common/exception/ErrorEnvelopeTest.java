@@ -205,7 +205,7 @@ class ErrorEnvelopeTest {
     @Test
     @DisplayName("네거티브 컨트롤 — @Valid 필드 문구는 그대로 DTO 것이 나온다")
     void validationMessagesStillComeFromTheDto() {
-        // RequestValueExceptionHandler 에 BindException 핸들러를 두면 MethodArgumentNotValidException
+        // core GlobalExceptionHandler 에 BindException 핸들러를 두면 MethodArgumentNotValidException
         // 까지 그 advice 가 먹어 이 문구가 사라진다(#307 이 맞춘 136개가 통째로). 그래서 여기서 못 박는다.
         Res res = call(HttpMethod.POST, "/api/v1/expense/budget", login(), "ko",
                 "{\"categoryRowId\":null,\"budgetAmount\":0,\"budgetYear\":2026,\"budgetMonth\":9}");

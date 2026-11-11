@@ -375,7 +375,7 @@ class RequestResponseLoggingFilterRoundTripTest {
 
         // 빈 캐시 복사가 실행됐다면 Content-Length: 0 이 박힌다 — 스킵됐어야 한다
         assertThat(response.getHeader("Content-Length")).isNull();
-        assertThat(loggedText()).contains("EXCLUDED_STREAMING_PATHS");
+        assertThat(loggedText()).contains("excludedExactPaths()");
     }
 
 

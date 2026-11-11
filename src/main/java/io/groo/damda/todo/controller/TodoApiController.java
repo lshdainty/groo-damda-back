@@ -98,7 +98,7 @@ public class TodoApiController {
      * 완료가 됐다(QA #93) — 읽는 쪽을 고친다.
      *
      * <p>없는 상태 값({@code "DONE"} 등)은 Jackson 역직렬화에서 걸려
-     * {@code RequestValueExceptionHandler} 가 400 으로 답한다.
+     * core 의 {@code GlobalExceptionHandler} 가 400 으로 답한다.
      */
     @PatchMapping("/todo/{id}/status")
     public ApiResponse<TodoApiDto.Response> changeStatus(
