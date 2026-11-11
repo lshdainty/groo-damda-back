@@ -5,7 +5,7 @@ import io.groo.damda.apitoken.controller.dto.ApiTokenApiDto.ApiTokenIssueRequest
 import io.groo.damda.apitoken.controller.dto.ApiTokenApiDto.ApiTokenIssueResponse;
 import io.groo.damda.apitoken.controller.dto.ApiTokenApiDto.ApiTokenResponse;
 import io.groo.damda.apitoken.service.ApiTokenService;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;

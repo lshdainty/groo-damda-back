@@ -6,7 +6,7 @@ import io.groo.damda.common.patch.Patch;
 import io.groo.damda.common.time.WallClockDateTimeParser;
 import io.groo.damda.asset.service.AssetService;
 import io.groo.damda.asset.service.dto.AssetServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

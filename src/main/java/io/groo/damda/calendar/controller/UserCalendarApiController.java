@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.calendar.controller.dto.UserCalendarApiDto;
 import io.groo.damda.calendar.service.UserCalendarService;
 import io.groo.damda.calendar.service.dto.UserCalendarServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

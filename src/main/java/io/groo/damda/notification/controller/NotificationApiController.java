@@ -5,7 +5,7 @@ import io.groo.damda.notification.controller.dto.NotificationApiDto;
 import io.groo.damda.notification.service.NotificationService;
 import io.groo.damda.notification.service.SseEmitterService;
 import io.groo.damda.notification.service.dto.NotificationServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;

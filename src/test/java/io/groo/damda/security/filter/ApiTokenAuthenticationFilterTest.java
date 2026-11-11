@@ -4,7 +4,7 @@ import io.groo.damda.apitoken.service.ApiTokenRateLimiter;
 import io.groo.damda.apitoken.service.ApiTokenService;
 import io.groo.damda.apitoken.service.dto.ApiTokenServiceDto.Caller;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.security.handler.ApiErrorResponder;
+import io.groo.core.security.web.SecurityErrorResponder;
 import io.groo.damda.security.principal.JwtUserPrincipal;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,14 +47,14 @@ class ApiTokenAuthenticationFilterTest {
 
     private ApiTokenService apiTokenService;
     private ApiTokenRateLimiter rateLimiter;
-    private ApiErrorResponder errorResponder;
+    private SecurityErrorResponder errorResponder;
     private ApiTokenAuthenticationFilter sut;
 
     @BeforeEach
     void setUp() {
         apiTokenService = mock(ApiTokenService.class);
         rateLimiter = mock(ApiTokenRateLimiter.class);
-        errorResponder = mock(ApiErrorResponder.class);
+        errorResponder = mock(SecurityErrorResponder.class);
         @SuppressWarnings("unchecked")
         ObjectProvider<ApiTokenService> provider = mock(ObjectProvider.class);
         given(provider.getObject()).willReturn(apiTokenService);

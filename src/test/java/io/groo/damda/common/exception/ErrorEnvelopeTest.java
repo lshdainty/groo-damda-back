@@ -1,7 +1,7 @@
 package io.groo.damda.common.exception;
 
 import io.groo.damda.security.controller.TokenExchangeController;
-import io.groo.damda.security.handler.CustomAccessDeniedHandler;
+import io.groo.core.security.web.JsonAccessDeniedHandler;
 import io.groo.damda.security.jwt.JwtTokenProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -67,7 +67,7 @@ class ErrorEnvelopeTest {
     @Autowired private JwtTokenProvider jwtTokenProvider;
     @Autowired private MessageSource messageSource;
     @Autowired private ObjectMapper objectMapper;
-    @Autowired private CustomAccessDeniedHandler accessDeniedHandler;
+    @Autowired private JsonAccessDeniedHandler accessDeniedHandler;
 
     private record Res(int status, String allow, String body) {}
 

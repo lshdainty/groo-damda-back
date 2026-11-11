@@ -62,7 +62,11 @@ spring:
 server:
   port: ${SERVER_PORT:8002}
   shutdown: ${SERVER_SHUTDOWN:graceful}
-  forward-headers-strategy: framework
+  # native = Tomcat RemoteIpValve. 사설 대역(nginx 컨테이너)에서 온 요청일 때만 X-Forwarded-For 를 오른쪽부터 읽어
+  # 실제 사용자 IP 를 getRemoteAddr() 에 넣는다(sso 와 같다). framework(Spring ForwardedHeaderFilter)는 X-Forwarded-For
+  # 의 맨 왼쪽 값을 그대로 써서, 요청자가 헤더 하나로 IP 를 바꿀 수 있었다 — IP 차단·레이트리밋·감사 IP 가 모두 위조
+  # 가능했다(2026-11-11 보안 점검). core ClientIpResolver 는 이 값을 믿으므로 framework 로 되돌리지 말 것.
+  forward-headers-strategy: native
   # 에러 응답 노출 제어 (server.error.*). 각 값 의미는 .env.example 참고
   error:
     include-stacktrace: ${ERROR_STACKTRACE:never}

@@ -1,13 +1,21 @@
 package io.groo.damda.common.config.security;
 
+import io.groo.damda.security.controller.TokenExchangeController;
+
+import io.groo.core.security.web.PrometheusAccessFilter;
+
+import io.groo.core.security.web.OriginCheckFilter;
+
+import io.groo.core.security.web.MaliciousPathBlockFilter;
+
 import io.groo.damda.apitoken.service.ApiTokenRateLimiter;
 import io.groo.damda.apitoken.service.ApiTokenService;
 import io.groo.damda.common.config.properties.AppProperties;
 import io.groo.damda.security.filter.ApiTokenAuthenticationFilter;
 import io.groo.damda.security.filter.JwtAuthenticationFilter;
-import io.groo.damda.security.handler.ApiErrorResponder;
-import io.groo.damda.security.handler.CustomAccessDeniedHandler;
-import io.groo.damda.security.handler.CustomAuthenticationEntryPoint;
+import io.groo.core.security.web.SecurityErrorResponder;
+import io.groo.core.security.web.JsonAccessDeniedHandler;
+import io.groo.core.security.web.JsonAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -34,9 +42,9 @@ public class SecurityConfig {
     // ApiTokenAuthenticationFilter 의 재료 — 필터 자체는 빈이 아니라 아래에서 직접 만든다(이유는 그 클래스 주석).
     private final ObjectProvider<ApiTokenService> apiTokenServiceProvider;
     private final ApiTokenRateLimiter apiTokenRateLimiter;
-    private final ApiErrorResponder apiErrorResponder;
-    private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
-    private final CustomAccessDeniedHandler customAccessDeniedHandler;
+    private final SecurityErrorResponder apiErrorResponder;
+    private final JsonAuthenticationEntryPoint customAuthenticationEntryPoint;
+    private final JsonAccessDeniedHandler customAccessDeniedHandler;
     private final AppProperties appProperties;
 
     @Bean
@@ -63,6 +71,12 @@ public class SecurityConfig {
                 ).permitAll()
                 .anyRequest().authenticated()
             )
+            // 보호 장치(core 3.2.0) — 담다에 없던 것들. 필터는 빈이 아니라 여기서 만든다(빈이면 서블릿 필터로 중복 등록).
+            // 스캐너 경로 차단 → 지표 접근 제한(내부망 직접 요청만) → 오리진 검사(쿠키 로그인의 CSRF 방어)
+            .addFilterBefore(new MaliciousPathBlockFilter(apiErrorResponder), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new PrometheusAccessFilter(apiErrorResponder), UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(new OriginCheckFilter(allowedOrigins(), TokenExchangeController.ACCESS_TOKEN_COOKIE,
+                apiErrorResponder), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             // 프로그램용 API 토큰은 JWT 보다 먼저 본다 — 같은 Authorization 자리에 오는데 JWT 가
             // 아니라서, JWT 필터가 먼저 집으면 읽지 못하고 경고만 남긴다. 순서를 JWT 필터 기준으로
@@ -74,11 +88,16 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /** CORS 와 오리진 검사가 같은 목록을 쓴다(쉼표 구분 설정값). */
+    private List<String> allowedOrigins() {
+        return Arrays.stream(appProperties.getCors().getAllowedOrigins().split(","))
+            .map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        String allowedOrigins = appProperties.getCors().getAllowedOrigins();
-        configuration.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
+        configuration.setAllowedOrigins(allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

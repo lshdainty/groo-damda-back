@@ -5,7 +5,7 @@ import io.groo.damda.common.patch.Patch;
 import io.groo.damda.savingGoal.controller.dto.SavingGoalApiDto;
 import io.groo.damda.savingGoal.service.SavingGoalService;
 import io.groo.damda.savingGoal.service.dto.SavingGoalServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

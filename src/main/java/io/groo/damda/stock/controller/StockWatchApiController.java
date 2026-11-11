@@ -1,7 +1,7 @@
 package io.groo.damda.stock.controller;
 
 import io.groo.core.controller.ApiResponse;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.stock.controller.dto.StockWatchApiDto;
 import io.groo.damda.stock.service.StockWatchService;

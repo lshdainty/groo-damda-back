@@ -5,7 +5,7 @@ import io.groo.damda.dataimport.controller.dto.ImportApiDto;
 import io.groo.damda.dataimport.service.ImportService;
 import io.groo.damda.dataimport.service.StandardRow;
 import io.groo.damda.dataimport.type.ImportSource;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;

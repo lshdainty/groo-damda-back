@@ -3,7 +3,7 @@ package io.groo.damda.constellation.controller;
 import io.groo.core.controller.ApiResponse;
 import io.groo.damda.constellation.controller.dto.ConstellationApiDto;
 import io.groo.damda.constellation.service.ConstellationService;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

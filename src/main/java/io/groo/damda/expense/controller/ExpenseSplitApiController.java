@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.expense.controller.dto.ExpenseSplitApiDto;
 import io.groo.damda.expense.service.ExpenseSplitService;
 import io.groo.damda.expense.service.dto.ExpenseSplitServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;

@@ -7,7 +7,7 @@ import io.groo.damda.expense.controller.dto.ExpenseTemplateApiDto;
 import io.groo.damda.expense.service.ExpenseTemplateService;
 import io.groo.damda.expense.service.dto.ExpenseServiceDto;
 import io.groo.damda.expense.service.dto.ExpenseTemplateServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;

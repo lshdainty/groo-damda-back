@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.card.controller.dto.CardBillingApiDto;
 import io.groo.damda.card.service.CardPaymentService;
 import io.groo.damda.card.service.dto.CardPaymentServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

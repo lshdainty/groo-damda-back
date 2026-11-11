@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.dutchpay.controller.dto.DutchPayApiDto;
 import io.groo.damda.dutchpay.service.DutchPayService;
 import io.groo.damda.dutchpay.service.dto.DutchPayServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

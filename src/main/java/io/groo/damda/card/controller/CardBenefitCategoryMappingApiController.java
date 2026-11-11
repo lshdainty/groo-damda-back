@@ -6,7 +6,7 @@ import io.groo.damda.card.controller.dto.CardCatalogApiDto;
 import io.groo.damda.card.service.CardBenefitCategoryMappingService;
 import io.groo.damda.card.service.dto.CardBenefitCategoryMappingServiceDto;
 import io.groo.damda.card.service.dto.CardCatalogServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
