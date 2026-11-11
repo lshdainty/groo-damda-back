@@ -439,7 +439,7 @@ public class AssetApiDto {
          * <p><b>{@code @NotBlank} 는 일부러 안 단다.</b> 거래({@code expenseDate})는 달고 있지만
          * 여기는 종전에도 없던 제약이고(QA #85 가 이체에 건 {@code @NotNull} 은
          * {@code fromAssetRowId}·{@code toAssetRowId} 다), 빼먹은 요청은 이미
-         * {@code DataIntegrityExceptionHandler} 가 400 "요청에 빠진 값이 있어요" 로 받는다
+         * core 의 {@code GlobalExceptionHandler} 가 400 "요청에 빠진 값이 있어요" 로 받는다
          * ({@code transfer_date} 가 NOT NULL 이라 하이버네이트가 저장 전에 끊는다 — 실측 확인).
          * 형식만 고치는 자리에서 제약을 새로 걸면 <b>이 PR 이 무엇을 바꿨는지</b>가 흐려진다.
          */

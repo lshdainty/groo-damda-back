@@ -4,7 +4,7 @@ import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.common.exception.IntegrityViolations;
+import io.groo.core.exception.IntegrityViolations;
 import io.groo.damda.common.validation.AmountLimits;
 import io.groo.damda.expense.domain.Expense;
 import io.groo.damda.expense.domain.ExpenseBudget;

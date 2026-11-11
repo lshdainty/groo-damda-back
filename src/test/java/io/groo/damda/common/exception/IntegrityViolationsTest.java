@@ -1,5 +1,8 @@
 package io.groo.damda.common.exception;
 
+import io.groo.core.exception.IntegrityViolations;
+import io.groo.core.exception.IntegrityViolationKind;
+
 import org.hibernate.PropertyValueException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;

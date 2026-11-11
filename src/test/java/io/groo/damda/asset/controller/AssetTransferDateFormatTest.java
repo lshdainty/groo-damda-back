@@ -37,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>왜 통합인가.</b> 지키려는 것 셋이 슬라이스 밖에 있다 — ① 실제 MVC 매퍼가 본문을 읽는지,
  * ② 파서가 날짜만 온 값을 그 날 00:00 로 접는지, ③ 파서가 던지는 {@code DateTimeParseException} 이
- * {@code RequestValueExceptionHandler} 를 거쳐 400 봉투로 나가는지(advice 순서가 정한다).
+ * core 의 {@code GlobalExceptionHandler} 를 거쳐 400 봉투로 나가는지(advice 순서가 정한다).
  * 마지막 것은 목으로 서비스를 대신하면 아예 안 돈다.
  *
  * <h4>네거티브 컨트롤</h4>
@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>아래 {@code missingDateIsRejected}·{@code blankDateIsRejected} 는 <b>고친 것이 아니라 안 건드린 것</b>을
  * 지킨다 — 일시를 빼면 종전에도 400 이었다({@code transfer_date} NOT NULL →
- * {@code DataIntegrityExceptionHandler}). 타입을 {@code String} 으로 바꾸면 Jackson 이 끊던 자리가
+ * core 의 {@code GlobalExceptionHandler}). 타입을 {@code String} 으로 바꾸면 Jackson 이 끊던 자리가
  * 사라지므로, 그 뒤에도 500 으로 새지 않는지 여기서 잰다. 처음엔 {@code @NotBlank} 를 달았다가
  * 뺐다 — 달아도 안 달아도 400 이라 <b>제약이 하는 일이 없었다</b>(네거티브 컨트롤로 실측).
  */

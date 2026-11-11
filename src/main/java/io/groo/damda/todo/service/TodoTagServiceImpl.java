@@ -4,7 +4,7 @@ import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.common.exception.IntegrityViolations;
+import io.groo.core.exception.IntegrityViolations;
 import io.groo.damda.common.util.NameNormalizer;
 import io.groo.damda.common.validation.FieldLimits;
 import io.groo.damda.todo.domain.TodoTag;
@@ -220,7 +220,7 @@ public class TodoTagServiceImpl implements TodoTagService {
         } catch (DataIntegrityViolationException e) {
             // UNIQUE 위반만 이 도메인의 답으로 번역한다. NOT NULL·FK 를 여기서 "이름 중복" 이라고
             // 답하면 값을 빼먹은 요청이 엉뚱한 이유를 듣는다(QA #81) — 그런 위반은 그대로 올려
-            // DataIntegrityExceptionHandler 가 종류대로 답하게 둔다.
+            // core GlobalExceptionHandler 가 종류대로 답하게 둔다.
             if (!IntegrityViolations.isUnique(e)) throw e;
             throw new InvalidValueException(DeskErrorCode.TODO_TAG_DUPLICATE_NAME, e);
         }

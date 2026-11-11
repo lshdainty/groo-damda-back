@@ -4,7 +4,7 @@ import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.common.exception.IntegrityViolations;
+import io.groo.core.exception.IntegrityViolations;
 import io.groo.damda.common.util.NameNormalizer;
 import io.groo.damda.common.validation.FieldLimits;
 import io.groo.damda.dutchpay.domain.DutchPay;
@@ -480,7 +480,7 @@ public class DutchPayServiceImpl implements DutchPayService {
         } catch (DataIntegrityViolationException e) {
             // UNIQUE 위반만 이 도메인의 답으로 번역한다. NOT NULL·FK 를 여기서 "이름 중복" 이라고
             // 답하면 값을 빼먹은 요청이 엉뚱한 이유를 듣는다(QA #81) — 그런 위반은 그대로 올려
-            // DataIntegrityExceptionHandler 가 종류대로 답하게 둔다.
+            // core GlobalExceptionHandler 가 종류대로 답하게 둔다.
             if (!IntegrityViolations.isUnique(e)) throw e;
             // 제약 이름은 로그에만 남긴다 — 응답에 실으면 내부 이름이 새어 나간다(QA #75).
             log.warn("더치페이 유일성 위반 - {}", IntegrityViolations.describe(e));
