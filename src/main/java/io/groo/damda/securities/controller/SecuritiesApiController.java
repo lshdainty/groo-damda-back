@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.core.controller.dto.CursorResponse;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.securities.service.SecuritiesCandleProviders;
 import io.groo.damda.securities.service.SecuritiesPriceProvider;

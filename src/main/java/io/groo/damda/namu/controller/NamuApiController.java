@@ -10,7 +10,7 @@ import io.groo.damda.namu.dto.NamuQuoteDto;
 import io.groo.damda.namu.service.NamuAccountDetailQueryService;
 import io.groo.damda.namu.service.NamuMarketQueryService;
 import io.groo.damda.namu.service.NamuQueryService;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.securities.service.dto.CandlePage;
 import io.groo.damda.securities.service.dto.CandleQuery;

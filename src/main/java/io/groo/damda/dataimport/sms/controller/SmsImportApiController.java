@@ -5,7 +5,7 @@ import io.groo.damda.common.time.WallClockDateTimeParser;
 import io.groo.damda.dataimport.sms.controller.dto.SmsImportApiDto;
 import io.groo.damda.dataimport.sms.service.SmsImportService;
 import io.groo.damda.dataimport.sms.service.dto.SmsImportServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;

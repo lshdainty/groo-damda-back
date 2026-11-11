@@ -7,7 +7,7 @@ import io.groo.damda.file.service.FileAttachmentService;
 import io.groo.damda.file.service.FileStorageService;
 import io.groo.damda.file.service.dto.FileServiceDto;
 import io.groo.damda.file.type.ReferenceType;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;

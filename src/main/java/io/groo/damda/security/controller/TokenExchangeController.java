@@ -2,7 +2,7 @@ package io.groo.damda.security.controller;
 
 import io.groo.core.controller.ApiResponse;
 import io.groo.damda.common.config.properties.JwtProperties;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.controller.dto.TokenExchangeDto;
 import io.groo.damda.security.jwt.JwtTokenProvider;
 import io.groo.damda.security.principal.JwtUserPrincipal;

@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.memo.controller.dto.MemoTagApiDto;
 import io.groo.damda.memo.service.MemoTagService;
 import io.groo.damda.memo.service.dto.MemoTagServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

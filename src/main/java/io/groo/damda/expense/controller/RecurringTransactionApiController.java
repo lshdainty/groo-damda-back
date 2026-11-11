@@ -4,7 +4,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.damda.expense.controller.dto.RecurringTransactionApiDto;
 import io.groo.damda.expense.service.RecurringTransactionService;
 import io.groo.damda.expense.service.dto.RecurringTransactionServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

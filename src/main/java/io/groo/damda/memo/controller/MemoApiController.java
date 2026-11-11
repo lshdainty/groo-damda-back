@@ -5,7 +5,7 @@ import io.groo.damda.common.patch.Patch;
 import io.groo.damda.memo.controller.dto.MemoApiDto;
 import io.groo.damda.memo.service.MemoService;
 import io.groo.damda.memo.service.dto.MemoServiceDto;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

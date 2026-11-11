@@ -6,7 +6,7 @@ import io.groo.core.controller.ApiResponse;
 import io.groo.core.util.FileUploadValidator;
 import io.groo.damda.export.controller.dto.ExportApiDto;
 import io.groo.damda.export.service.ExportService;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;

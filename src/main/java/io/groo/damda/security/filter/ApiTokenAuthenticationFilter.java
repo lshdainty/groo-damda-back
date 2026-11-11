@@ -5,7 +5,7 @@ import io.groo.damda.apitoken.service.ApiTokenService;
 import io.groo.damda.apitoken.service.dto.ApiTokenServiceDto.Caller;
 import io.groo.damda.apitoken.type.ApiTokenFormat;
 import io.groo.damda.common.exception.DeskErrorCode;
-import io.groo.damda.security.handler.ApiErrorResponder;
+import io.groo.core.security.web.SecurityErrorResponder;
 import io.groo.damda.security.principal.JwtClaimsPrincipal;
 import io.groo.damda.security.principal.JwtUserPrincipal;
 import jakarta.servlet.FilterChain;
@@ -39,7 +39,7 @@ import java.util.Set;
  *
  * <p>순서: 범위 → 토큰 → 호출 제한. 범위를 먼저 보는 이유는 열리지 않는 자리에서 DB 를 보지
  * 않기 위해서다(그래서 가짜 토큰으로 막힌 자리를 부르면 401 이 아니라 403 이 나간다).
- * 막을 때는 컨트롤러와 같은 봉투로 답한다({@link ApiErrorResponder}).
+ * 막을 때는 컨트롤러와 같은 봉투로 답한다({@link SecurityErrorResponder}).
  *
  * <p>토큰 원문은 로그에 남기지 않는다. 요청 로그의 {@code Authorization} 은 core 마스커가 가린다.
  *
@@ -71,7 +71,7 @@ public class ApiTokenAuthenticationFilter extends OncePerRequestFilter {
      */
     private final ObjectProvider<ApiTokenService> apiTokenServiceProvider;
     private final ApiTokenRateLimiter rateLimiter;
-    private final ApiErrorResponder errorResponder;
+    private final SecurityErrorResponder errorResponder;
 
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {

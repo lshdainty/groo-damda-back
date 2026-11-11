@@ -1,7 +1,7 @@
 package io.groo.damda.subscription.controller;
 
 import io.groo.core.controller.ApiResponse;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.securities.service.SecuritiesCredentialService;
 import io.groo.damda.securities.type.SecuritiesBroker;

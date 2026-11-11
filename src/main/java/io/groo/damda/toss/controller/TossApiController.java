@@ -2,7 +2,7 @@ package io.groo.damda.toss.controller;
 
 import io.groo.core.controller.ApiResponse;
 import io.groo.core.controller.dto.CursorResponse;
-import io.groo.damda.security.annotation.LoginUser;
+import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.securities.service.dto.InvestorTradingDay;
 import io.groo.damda.toss.dto.TossAccountDto;
