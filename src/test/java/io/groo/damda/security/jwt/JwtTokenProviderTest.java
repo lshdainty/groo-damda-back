@@ -52,10 +52,12 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("embed 토큰 발급 — typ=embed, 만료 60초, 메인 secret 으로 서명되어 같은 provider 가 검증 가능")
     void createEmbedToken_typEmbed_60sec_verifiable() {
-        String token = sut.createEmbedToken("u1", "User", "u@e.com", 100L);
+        String token = sut.createEmbedToken("u1", "User", "u@e.com", 100L, "sid-parent");
 
         Claims c = parse(token);
         assertThat(c.get("typ", String.class)).isEqualTo("embed");
+        // 부모 세션(jti)을 그대로 싣는다 — 로그아웃 폐기 검사의 열쇠(S-3)
+        assertThat(c.getId()).isEqualTo("sid-parent");
         long remaining = c.getExpiration().getTime() - System.currentTimeMillis();
         assertThat(remaining).isBetween(50_000L, 61_000L);
 

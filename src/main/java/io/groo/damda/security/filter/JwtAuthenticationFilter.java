@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,6 +27,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -83,7 +85,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // 갱신도 같이 건너뛴다(아래 블록에 못 들어간다). 이게 이 검사의 절반이다 —
                 // 갱신 경로는 세션을 보지 않고 claims 만으로 재서명하므로, 여기서 안 막으면
                 // 복사된 쿠키를 만료 전에 한 번 쓰는 것만으로 수명이 무기한 연장된다.
-                if (!isRevokedSession(claims)) {
+                // 임베드 토큰은 차트 조회(GET 캔들 3곳)에서만 인증한다(보안 점검 S-3). 차트 WebView 로
+                // 밖에 노출되는 토큰이라, 새면 그 사용자의 모든 API(가계부·설정·토큰 재발급)가 열리던 구멍.
+                if (!isRevokedSession(claims) && (!claims.isEmbed() || isEmbedAllowed(request))) {
                     authenticate(claims);
 
                     // 임베드 토큰(typ=embed)은 단명 컨텍스트 전용이라 쿠키 갱신 대상에서 제외한다.
@@ -147,8 +151,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 세션에 속하지 않는 토큰(임베드, 세션 도입 前 발급분)은 조회 자체를 건너뛴다 — 폐기할
-     * 세션이 없으니 표식도 있을 수 없고, 요청마다 헛조회를 하게 된다.
+     * 임베드 토큰이 인증되는 자리 — 차트 임베드 페이지가 부르는 캔들 조회뿐(GET).
+     * 프런트 {@code candlesPath()} 와 짝이다. 새 임베드 화면이 다른 API 를 부르면 여기 넣는다.
+     */
+    static final Set<String> EMBED_ALLOWED_PATHS = Set.of(
+        "/api/v1/securities/candles",
+        "/api/v1/toss/candles",
+        "/api/v1/namu/candles"
+    );
+
+    static boolean isEmbedAllowed(HttpServletRequest request) {
+        if (!HttpMethod.GET.matches(request.getMethod())) {
+            return false;
+        }
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        return EMBED_ALLOWED_PATHS.contains(path);
+    }
+
+    /**
+     * 세션에 속하지 않는 토큰(세션 도입 前 발급분, 그런 부모에서 나온 임베드)은 조회 자체를 건너뛴다 —
+     * 폐기할 세션이 없으니 표식도 있을 수 없고, 요청마다 헛조회를 하게 된다. 임베드 토큰은 부모 세션의
+     * jti 를 그대로 실으므로 부모가 로그아웃하면 같이 막힌다.
      */
     private boolean isRevokedSession(JwtClaimsPrincipal claims) {
         return claims.hasSession() && sessionRevocationStore.isRevoked(claims.sessionId());

@@ -62,13 +62,19 @@ public class JwtTokenProvider {
      * 임베드용 단명(60초) 토큰. 메인 secret 으로 서명되어 JwtAuthenticationFilter 가
      * 그대로 인식한다. claim {@code typ=embed} 로 필터의 쿠키 갱신을 skip 시킨다.
      * 차트 WebView 처럼 외부 컨텍스트로 한 번 노출되는 단명 컨텍스트에 사용.
+     *
+     * <p>{@code sessionId} 는 발급을 요청한 access 토큰의 세션(jti)을 그대로 싣는다. 그래야 로그아웃·기기
+     * 해제로 그 세션이 폐기되면 임베드 토큰도 같이 막힌다(보안 점검 S-3 — 예전엔 jti 가 없어 폐기 검사를
+     * 건너뛰었다). 세션이 없는 옛 access 토큰이면 null — 부모보다 강해지지 않는다.
      */
-    public String createEmbedToken(String userId, String userName, String userEmail, Long userRowId) {
+    public String createEmbedToken(String userId, String userName, String userEmail, Long userRowId,
+                                   String sessionId) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + EMBED_TOKEN_EXPIRATION_MS);
 
         return Jwts.builder()
             .subject(userId)
+            .id(sessionId)
             .claim("userName", userName)
             .claim("userEmail", userEmail)
             .claim("userRowId", userRowId)

@@ -1,6 +1,8 @@
 package io.groo.damda.security.controller;
 
 import io.groo.core.controller.ApiResponse;
+import io.groo.core.exception.ForbiddenException;
+import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.damda.common.config.properties.JwtProperties;
 import io.groo.core.security.LoginUser;
 import io.groo.damda.security.controller.dto.TokenExchangeDto;
@@ -88,17 +90,27 @@ public class TokenExchangeController {
 
     /**
      * 임베드(차트 WebView 등) 단명 컨텍스트용 60초 토큰 발급.
-     * 인증된 사용자만 호출 가능. 발급된 토큰은 Authorization: Bearer 로 사용하며,
-     * JwtAuthenticationFilter 는 typ=embed 토큰의 쿠키 갱신을 skip 한다.
+     * 발급된 토큰은 Authorization: Bearer 로 사용하며, JwtAuthenticationFilter 는 typ=embed 토큰을
+     * 차트 조회 경로에서만 인증하고 쿠키 갱신·무음 재인증을 하지 않는다.
+     *
+     * <p><b>로그인 세션(typ=access)으로만 부를 수 있다</b>(보안 점검 S-3). 예전엔 임베드 토큰으로도 이 경로를
+     * 불러 새 임베드 토큰을 받을 수 있어, 한 번 샌 토큰이 60초마다 스스로 연장됐다. 지금은 임베드 토큰이
+     * 이 경로에서 인증 자체가 안 되지만(필터의 경로 제한), 그 제한이 풀려도 여기서 한 번 더 막는다.
+     * 새 토큰에는 부모 세션(jti)을 실어 로그아웃하면 같이 죽게 한다.
      */
     @PostMapping("/embed-token")
     public ApiResponse<TokenExchangeDto.EmbedTokenResponse> issueEmbedToken(@LoginUser UserPrincipal loginUser) {
-        // 임베드 토큰은 세션에 속하지 않는다(60초 단명). jti 없이 만들어 재발급 대상에서 빠진다.
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof JwtUserPrincipal principal)
+                || !"access".equals(principal.getClaims().tokenType())) {
+            throw new ForbiddenException(DeskErrorCode.AUTH_ACCESS_DENIED);
+        }
         String token = jwtTokenProvider.createEmbedToken(
             loginUser.getUserId(),
             loginUser.getUserName(),
             loginUser.getUserEmail(),
-            loginUser.getRowId()
+            loginUser.getRowId(),
+            principal.getSessionId()
         );
         return ApiResponse.success(new TokenExchangeDto.EmbedTokenResponse(
             token, JwtTokenProvider.EMBED_TOKEN_EXPIRATION_MS / 1000
