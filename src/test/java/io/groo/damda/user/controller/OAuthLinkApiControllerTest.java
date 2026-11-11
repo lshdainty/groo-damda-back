@@ -56,7 +56,7 @@ class OAuthLinkApiControllerTest {
     @Test
     @DisplayName("POST /oauth/link/{provider} — provider·returnUrl 로 startLink, 시작 URL 반환")
     void startLink_withReturnUrl() throws Exception {
-        given(oAuthLinkService.startLink("user1", "google", "/settings/account"))
+        given(oAuthLinkService.startLink("user1", "google", "/settings/account", "REAUTH-T"))
                 .willReturn("https://sso.example.com/link/start?token=abc");
 
         String body = """
@@ -64,25 +64,27 @@ class OAuthLinkApiControllerTest {
                 """;
 
         mockMvc.perform(post("/api/v1/oauth/link/{provider}", "google")
+                        .header("X-Reauth-Token", "REAUTH-T")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.startUrl").value("https://sso.example.com/link/start?token=abc"));
 
-        verify(oAuthLinkService).startLink("user1", "google", "/settings/account");
+        // 재인증 티켓 헤더를 서비스로 그대로 넘긴다(검증은 SSO, 보안 점검 S-2)
+        verify(oAuthLinkService).startLink("user1", "google", "/settings/account", "REAUTH-T");
     }
 
     @Test
     @DisplayName("POST /oauth/link/{provider} — 바디 없으면 returnUrl 은 null 로 relay")
     void startLink_withoutBody() throws Exception {
-        given(oAuthLinkService.startLink(eq("user1"), eq("kakao"), isNull()))
+        given(oAuthLinkService.startLink(eq("user1"), eq("kakao"), isNull(), isNull()))
                 .willReturn("https://sso.example.com/link/start");
 
         mockMvc.perform(post("/api/v1/oauth/link/{provider}", "kakao"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.startUrl").value("https://sso.example.com/link/start"));
 
-        verify(oAuthLinkService).startLink(eq("user1"), eq("kakao"), isNull());
+        verify(oAuthLinkService).startLink(eq("user1"), eq("kakao"), isNull(), isNull());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.groo.damda.user.controller;
 
+import io.groo.damda.user.type.ReauthPurpose;
 import io.groo.core.controller.ApiResponse;
 import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
@@ -82,7 +83,8 @@ public class UserApiController {
             @LoginUser UserPrincipal loginUser,
             @Valid @RequestBody UserApiDto.ReauthEmailCodeReq request) {
         return ApiResponse.success(new UserApiDto.ReauthTicketResp(
-                reauthProxyService.verifyEmailCode(loginUser.getUserId(), request.getCode())));
+                reauthProxyService.verifyEmailCode(loginUser.getUserId(), request.getCode(),
+                        ReauthPurpose.fromRequest(request.getPurpose()))));
     }
 
     /** 비밀번호 확인 → 재인증 티켓. */
@@ -91,7 +93,8 @@ public class UserApiController {
             @LoginUser UserPrincipal loginUser,
             @Valid @RequestBody UserApiDto.ReauthPasswordReq request) {
         return ApiResponse.success(new UserApiDto.ReauthTicketResp(
-                reauthProxyService.verifyPassword(loginUser.getUserId(), request.getPassword())));
+                reauthProxyService.verifyPassword(loginUser.getUserId(), request.getPassword(),
+                        ReauthPurpose.fromRequest(request.getPurpose()))));
     }
 
     /**
@@ -111,7 +114,7 @@ public class UserApiController {
         // 티켓의 주인이 **지금 로그인한 사람과 같은지** 본다. 서명·용도·단회만 보고
         // 넘기면 남의 티켓으로 내 계정을 해지시킬 수 있다 — 검증기가 주인을 돌려주는데
         // 그 값을 버리고 있었다(2026-09-17 QA: r13 티켓 + r12 세션이 통과).
-        reauthTicketVerifier.consumeFor(reauthToken, "withdraw", loginUser.getUserId());
+        reauthTicketVerifier.consumeFor(reauthToken, ReauthPurpose.WITHDRAW.wire(), loginUser.getUserId());
         withdrawalService.withdraw(loginUser.getRowId(),
                 request != null ? request.getReason() : null);
         return ApiResponse.success(null);

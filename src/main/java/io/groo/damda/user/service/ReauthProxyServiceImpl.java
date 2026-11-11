@@ -1,5 +1,7 @@
 package io.groo.damda.user.service;
 
+import io.groo.damda.user.type.ReauthPurpose;
+
 import io.groo.core.controller.ApiResponse;
 import io.groo.core.exception.ExternalServiceException;
 import io.groo.core.exception.InvalidValueException;
@@ -31,13 +33,11 @@ public class ReauthProxyServiceImpl implements ReauthProxyService {
     private static final String SSO_EMAIL_CODE_VERIFY_PATH = "/api/v1/auth/reauth/email-code/verify";
     private static final String SSO_PASSWORD_PATH = "/api/v1/auth/reauth/password";
 
-    /**
-     * 티켓이 무엇을 위한 것인지. desk 에서 재인증을 요구하는 자리는 <b>지금 해지 하나뿐</b>
-     * 이라 서버가 박는다 — 클라이언트가 고르게 하면 아무 용도의 티켓이나 발급받을 수 있고,
-     * {@link ReauthTicketVerifier} 가 용도를 대조하는 의미가 없어진다.
-     * 두 번째 용도가 생기면 그때 파라미터로 연다.
+    /*
+     * 티켓 용도는 닫힌 목록({@link ReauthPurpose})에서만 고른다 — 열린 문자열이면 아무 용도의 티켓이나
+     * 발급받아 {@link ReauthTicketVerifier} 의 용도 대조가 의미를 잃는다. 해지 하나뿐이던 것을
+     * 소셜 연동 시작(보안 점검 S-2)이 두 번째 용도로 열었다.
      */
-    private static final String PURPOSE_WITHDRAW = "withdraw";
 
     private final SsoOAuth2Client ssoOAuth2Client;
 
@@ -50,17 +50,17 @@ public class ReauthProxyServiceImpl implements ReauthProxyService {
     }
 
     @Override
-    public String verifyEmailCode(String userId, String code) {
+    public String verifyEmailCode(String userId, String code, ReauthPurpose purpose) {
         VerifyResp resp = call(SSO_EMAIL_CODE_VERIFY_PATH,
-                Map.of("userId", userId, "code", code, "purpose", PURPOSE_WITHDRAW),
+                Map.of("userId", userId, "code", code, "purpose", purpose.wire()),
                 userId, "코드 확인");
         return ticketOf(resp, userId);
     }
 
     @Override
-    public String verifyPassword(String userId, String password) {
+    public String verifyPassword(String userId, String password, ReauthPurpose purpose) {
         VerifyResp resp = call(SSO_PASSWORD_PATH,
-                Map.of("userId", userId, "password", password, "purpose", PURPOSE_WITHDRAW),
+                Map.of("userId", userId, "password", password, "purpose", purpose.wire()),
                 userId, "비밀번호 확인");
         return ticketOf(resp, userId);
     }

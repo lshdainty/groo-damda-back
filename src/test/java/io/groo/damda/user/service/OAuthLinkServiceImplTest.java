@@ -72,7 +72,7 @@ class OAuthLinkServiceImplTest {
                         StartUrlResp.builder().startUrl("https://sso.porest.com/oauth/link/start?token=abc").build())));
 
         // provider 대문자로 넘겨도 SSO 경로는 소문자로 변환
-        String startUrl = sut.startLink(USER_ID, "Google", "https://desk.porest.com/settings");
+        String startUrl = sut.startLink(USER_ID, "Google", "https://desk.porest.com/settings", "REAUTH-T");
 
         ArgumentCaptor<HttpEntity<Map<String, String>>> captor = bodyEntityCaptor();
         org.mockito.Mockito.verify(ssoRestTemplate).exchange(eq(LINK_GOOGLE_PATH), eq(HttpMethod.POST),
@@ -82,7 +82,9 @@ class OAuthLinkServiceImplTest {
         assertThat(entity.getHeaders().getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer " + SVC_TOKEN);
         assertThat(entity.getBody())
                 .containsEntry("userId", USER_ID)
-                .containsEntry("returnUrl", "https://desk.porest.com/settings");
+                .containsEntry("returnUrl", "https://desk.porest.com/settings")
+                // 재인증 티켓은 SSO 가 검증·소모한다 — 그대로 넘긴다(보안 점검 S-2)
+                .containsEntry("reauthToken", "REAUTH-T");
         assertThat(startUrl).isEqualTo("https://sso.porest.com/oauth/link/start?token=abc");
     }
 
@@ -95,12 +97,13 @@ class OAuthLinkServiceImplTest {
                 .willReturn(ResponseEntity.ok(ApiResponse.success(
                         StartUrlResp.builder().startUrl("https://sso/start").build())));
 
-        sut.startLink(USER_ID, "google", null);
+        sut.startLink(USER_ID, "google", null, null);
 
         ArgumentCaptor<HttpEntity<Map<String, String>>> captor = bodyEntityCaptor();
         org.mockito.Mockito.verify(ssoRestTemplate).exchange(eq(LINK_GOOGLE_PATH), eq(HttpMethod.POST),
                 captor.capture(), any(ParameterizedTypeReference.class));
-        assertThat(captor.getValue().getBody()).containsEntry("returnUrl", "");
+        assertThat(captor.getValue().getBody()).containsEntry("returnUrl", "")
+                .containsEntry("reauthToken", "");
     }
 
     @Test
@@ -111,7 +114,7 @@ class OAuthLinkServiceImplTest {
                 any(ParameterizedTypeReference.class)))
                 .willReturn(ResponseEntity.ok(ApiResponse.error("FAIL", "이미 연동된 계정입니다")));
 
-        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null))
+        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null, "REAUTH-T"))
                 .isInstanceOf(InvalidValueException.class);
     }
 
@@ -124,7 +127,7 @@ class OAuthLinkServiceImplTest {
                 .willThrow(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request",
                         HttpHeaders.EMPTY, "{\"message\":\"잘못된 provider\"}".getBytes(), null));
 
-        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null))
+        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null, "REAUTH-T"))
                 .isInstanceOf(InvalidValueException.class);
     }
 
@@ -136,7 +139,7 @@ class OAuthLinkServiceImplTest {
                 any(ParameterizedTypeReference.class)))
                 .willThrow(new ResourceAccessException("connection refused"));
 
-        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null))
+        assertThatThrownBy(() -> sut.startLink(USER_ID, "google", null, "REAUTH-T"))
                 .isInstanceOf(ExternalServiceException.class);
     }
 

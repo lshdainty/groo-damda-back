@@ -1,5 +1,6 @@
 package io.groo.damda.user.service;
 
+import io.groo.damda.user.type.ReauthPurpose;
 import io.groo.core.controller.ApiResponse;
 import io.groo.core.exception.ExternalServiceException;
 import io.groo.core.exception.InvalidValueException;
@@ -130,16 +131,26 @@ class ReauthProxyServiceImplTest {
         }
 
         @Test
-        @DisplayName("코드 확인: purpose 는 withdraw 로 고정 — 클라이언트가 고를 수 없다")
+        @DisplayName("코드 확인: purpose 는 닫힌 목록의 wire 값 그대로 — 해지는 withdraw")
         void verifyEmailCode_fixesPurpose() {
             givenSsoReturns(VERIFY_PATH,
                     ApiResponse.success(new ReauthProxyServiceImpl.VerifyResp("ticket")));
 
-            assertThat(sut.verifyEmailCode(USER_ID, "123456")).isEqualTo("ticket");
+            assertThat(sut.verifyEmailCode(USER_ID, "123456", ReauthPurpose.WITHDRAW)).isEqualTo("ticket");
             assertThat(capturedBody(VERIFY_PATH))
                     .containsEntry("userId", USER_ID)
                     .containsEntry("code", "123456")
                     .containsEntry("purpose", "withdraw");
+        }
+
+        @Test
+        @DisplayName("소셜 연동용(보안 점검 S-2): purpose=oauth-link 로 받아 온다 — SSO 연동 시작이 이 값을 본다")
+        void verifyPassword_oauthLink() {
+            givenSsoReturns(PASSWORD_PATH,
+                    ApiResponse.success(new ReauthProxyServiceImpl.VerifyResp("link-ticket")));
+
+            assertThat(sut.verifyPassword(USER_ID, "pw", ReauthPurpose.OAUTH_LINK)).isEqualTo("link-ticket");
+            assertThat(capturedBody(PASSWORD_PATH)).containsEntry("purpose", "oauth-link");
         }
 
         @Test
@@ -148,7 +159,7 @@ class ReauthProxyServiceImplTest {
             givenSsoReturns(PASSWORD_PATH,
                     ApiResponse.success(new ReauthProxyServiceImpl.VerifyResp("ticket")));
 
-            assertThat(sut.verifyPassword(USER_ID, "pw")).isEqualTo("ticket");
+            assertThat(sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW)).isEqualTo("ticket");
             assertThat(capturedBody(PASSWORD_PATH))
                     .containsEntry("userId", USER_ID)
                     .containsEntry("password", "pw")
@@ -165,7 +176,7 @@ class ReauthProxyServiceImplTest {
         void clientError_becomes400() {
             givenSsoThrows(VERIFY_PATH, badRequest("인증 코드가 올바르지 않아요"));
 
-            assertThatThrownBy(() -> sut.verifyEmailCode(USER_ID, "000000"))
+            assertThatThrownBy(() -> sut.verifyEmailCode(USER_ID, "000000", ReauthPurpose.WITHDRAW))
                     .isInstanceOf(InvalidValueException.class)
                     .hasMessageContaining("인증 코드가 올바르지 않아요");
         }
@@ -184,7 +195,7 @@ class ReauthProxyServiceImplTest {
                     "본인 확인을 여러 번 틀렸어요. 10분 후 다시 시도해 주세요"));
 
             InvalidValueException thrown = catchThrowableOfType(
-                    () -> sut.verifyPassword(USER_ID, "pw"), InvalidValueException.class);
+                    () -> sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW), InvalidValueException.class);
 
             assertThat(thrown).hasMessageContaining("10분 후");
             assertThat(thrown.getErrorCode()).isEqualTo(DeskErrorCode.REAUTH_LOCKED);
@@ -215,7 +226,7 @@ class ReauthProxyServiceImplTest {
             givenSsoThrows(PASSWORD_PATH, badRequest("비밀번호가 올바르지 않아요"));
 
             InvalidValueException thrown = catchThrowableOfType(
-                    () -> sut.verifyPassword(USER_ID, "pw"), InvalidValueException.class);
+                    () -> sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW), InvalidValueException.class);
 
             assertThat(thrown.getErrorCode()).isEqualTo(DeskErrorCode.REAUTH_FAILED);
         }
@@ -225,7 +236,7 @@ class ReauthProxyServiceImplTest {
         void networkError_becomes502() {
             givenSsoThrows(PASSWORD_PATH, new ResourceAccessException("connect timed out"));
 
-            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw"))
+            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW))
                     .isInstanceOf(ExternalServiceException.class);
         }
 
@@ -234,7 +245,7 @@ class ReauthProxyServiceImplTest {
         void unsuccessfulBody_becomes400() {
             givenSsoReturns(PASSWORD_PATH, ApiResponse.error("FAIL", "비밀번호가 올바르지 않아요"));
 
-            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw"))
+            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW))
                     .isInstanceOf(InvalidValueException.class);
         }
 
@@ -244,7 +255,7 @@ class ReauthProxyServiceImplTest {
             givenSsoReturns(PASSWORD_PATH,
                     ApiResponse.success(new ReauthProxyServiceImpl.VerifyResp("  ")));
 
-            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw"))
+            assertThatThrownBy(() -> sut.verifyPassword(USER_ID, "pw", ReauthPurpose.WITHDRAW))
                     .isInstanceOf(ExternalServiceException.class);
         }
     }
