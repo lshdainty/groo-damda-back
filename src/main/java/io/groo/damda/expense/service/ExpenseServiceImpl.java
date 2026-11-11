@@ -1585,7 +1585,7 @@ public class ExpenseServiceImpl implements ExpenseService {
                 // 임계 돌파 판정 — 전부 정수 교차곱. (지출/한도 >= pct/100) 을 (지출*100 >= 한도*pct) 로 본다.
                 long beforeScaled = beforeSpent * 100L;
                 long afterScaled = afterSpent * 100L;
-                long overScaled = limit * 100L;          // 100% = 초과
+                long overScaled = limit * 100L;          // 한도 그 자체. '초과' 는 이보다 *커야* 한다(같으면 초과 아님)
                 long warnScaled = limit * warnPercent;
 
                 // 문구는 번들에서 온다 — 같은 알림을 매일 09:00 배치도 만들기 때문이다
@@ -1593,7 +1593,9 @@ public class ExpenseServiceImpl implements ExpenseService {
                 String categoryName = bCatId == null
                     ? notificationMessages.budgetCategoryAll() : budget.getCategory().getCategoryName();
 
-                if (beforeScaled < overScaled && afterScaled >= overScaled) {
+                // 초과 = 한도보다 클 때만(2026-11-11 결정). 한도와 같은 금액은 초과가 아니라 마지막 한 푼까지 쓴 것이다.
+                // 같을 땐 아래 WARN 분기가 받고(표시 100%), 이미 한도였던 상태에서 더 쓰면 그때 초과가 난다.
+                if (beforeScaled <= overScaled && afterScaled > overScaled) {
                     notificationService.createNotification(new NotificationServiceDto.CreateCommand(
                         userRowId,
                         NotificationType.BUDGET_ALERT,

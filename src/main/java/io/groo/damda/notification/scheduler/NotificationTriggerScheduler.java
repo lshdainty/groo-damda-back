@@ -165,7 +165,8 @@ public class NotificationTriggerScheduler {
                         //   여기  "식비 예산 초과 경고" / "식비 카테고리 예산의 90%를 사용했습니다."
                         //   거기  "식비 예산 90% 사용" / "식비 예산의 90%를 사용했어요 (…)."
                         // 임계는 넘었지만 아직 초과가 아닌 구간까지 "초과 경고" 라 부르던 것도 여기서 갈린다.
-                        boolean over = totalSpending >= limit;
+                        // 한도와 같으면 초과가 아니다(2026-11-11) — 거래 저장 경로(ExpenseServiceImpl)와 같은 규칙.
+                        boolean over = totalSpending > limit;
                         int pct = NotificationMessages.usagePercent(totalSpending, limit);
 
                         NotificationServiceDto.CreateCommand command = new NotificationServiceDto.CreateCommand(

@@ -637,6 +637,64 @@ class ExpenseServiceImplTest {
     }
 
     @Test
+    @DisplayName("createExpense — 한도 −1(9,999)은 초과가 아니다(WARN 99%)")
+    void createOneBelowLimitIsNotOver() {
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        givenOverallBudget(10_000L, 85, u, leaf, 9_999L);
+
+        sut.createExpense(createCmdAmount(10L, 9_999L));
+
+        ArgumentCaptor<NotificationServiceDto.CreateCommand> captor =
+                ArgumentCaptor.forClass(NotificationServiceDto.CreateCommand.class);
+        verify(notificationService, times(1)).createNotification(captor.capture());
+        assertThat(captor.getValue().title()).doesNotContain("초과").contains("99%");
+    }
+
+    @Test
+    @DisplayName("createExpense — 한도와 정확히 같으면(10,000) 초과 알림이 없고 WARN 100% 한 건만 간다")
+    void createExactlyAtLimitIsNotOverButWarns() {
+        // 2026-11-11 결정: 초과는 한도보다 클 때만. 같을 땐 근접(WARN)이 받는다.
+        LocaleContextHolder.resetLocaleContext();
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        givenOverallBudget(10_000L, 85, u, leaf, 10_000L);
+
+        sut.createExpense(createCmdAmount(10L, 10_000L));
+
+        ArgumentCaptor<NotificationServiceDto.CreateCommand> captor =
+                ArgumentCaptor.forClass(NotificationServiceDto.CreateCommand.class);
+        verify(notificationService, times(1)).createNotification(captor.capture());
+        assertThat(captor.getValue().title()).isEqualTo("전체 예산 100% 사용");
+        assertThat(captor.getValue().title()).doesNotContain("초과");
+    }
+
+    @Test
+    @DisplayName("createExpense — 한도 +1(10,001)은 초과 알림 한 건")
+    void createOneAboveLimitIsOver() {
+        LocaleContextHolder.resetLocaleContext();
+        User u = user(USER_ID);
+        ExpenseCategory leaf = category(10L, u);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
+        given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
+        givenOverallBudget(10_000L, 85, u, leaf, 10_001L);
+
+        sut.createExpense(createCmdAmount(10L, 10_001L));
+
+        ArgumentCaptor<NotificationServiceDto.CreateCommand> captor =
+                ArgumentCaptor.forClass(NotificationServiceDto.CreateCommand.class);
+        verify(notificationService, times(1)).createNotification(captor.capture());
+        assertThat(captor.getValue().title()).isEqualTo("전체 예산 초과");
+    }
+
+    @Test
     @DisplayName("createExpense — 99.5%(9,950) WARN 라벨은 '100%' 아닌 '99%' 로 표기(반올림 cap)")
     void createWarnLabelCappedAt99() {
         User u = user(USER_ID);
@@ -687,15 +745,16 @@ class ExpenseServiceImplTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
         given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
         given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
-        givenOverallBudget(10_000L, 85, u, leaf, 10_000L);
+        // 초과는 한도보다 클 때만이다(2026-11-11 — 한도와 같으면 초과가 아니다). 그래서 10,001.
+        givenOverallBudget(10_000L, 85, u, leaf, 10_001L);
 
-        sut.createExpense(createCmdAmount(10L, 10_000L));
+        sut.createExpense(createCmdAmount(10L, 10_001L));
 
         ArgumentCaptor<NotificationServiceDto.CreateCommand> captor =
                 ArgumentCaptor.forClass(NotificationServiceDto.CreateCommand.class);
         verify(notificationService).createNotification(captor.capture());
         assertThat(captor.getValue().title()).isEqualTo("전체 예산 초과");
-        assertThat(captor.getValue().message()).isEqualTo("전체 예산 10,000원을 초과했어요 (현재 10,000원)");
+        assertThat(captor.getValue().message()).isEqualTo("전체 예산 10,000원을 초과했어요 (현재 10,001원)");
     }
 
     @Test
@@ -710,16 +769,16 @@ class ExpenseServiceImplTest {
             given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
             given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
             given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
-            givenOverallBudget(10_000L, 85, u, leaf, 10_000L);
+            givenOverallBudget(10_000L, 85, u, leaf, 10_001L); // 초과 = 한도보다 클 때만
 
-            sut.createExpense(createCmdAmount(10L, 10_000L));
+            sut.createExpense(createCmdAmount(10L, 10_001L));
 
             ArgumentCaptor<NotificationServiceDto.CreateCommand> captor =
                     ArgumentCaptor.forClass(NotificationServiceDto.CreateCommand.class);
             verify(notificationService).createNotification(captor.capture());
             assertThat(captor.getValue().title()).isEqualTo("All budget exceeded");
             assertThat(captor.getValue().message())
-                    .isEqualTo("You went over the All budget of 10,000 won (now 10,000 won)");
+                    .isEqualTo("You went over the All budget of 10,000 won (now 10,001 won)");
         } finally {
             LocaleContextHolder.resetLocaleContext();
         }
@@ -733,9 +792,9 @@ class ExpenseServiceImplTest {
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
         given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(leaf));
         given(expenseCategoryRepository.hasChildren(10L)).willReturn(false);
-        givenOverallBudget(10_000L, 85, u, leaf, 10_000L);
+        givenOverallBudget(10_000L, 85, u, leaf, 10_001L); // 초과 = 한도보다 클 때만(11-11)
 
-        sut.createExpense(createCmdAmount(10L, 10_000L));
+        sut.createExpense(createCmdAmount(10L, 10_001L));
 
         // if(OVER) else-if(WARN) → 85·100 동시 초과여도 알림은 1건만(OVER)
         verify(notificationService, times(1)).createNotification(any());
@@ -773,7 +832,7 @@ class ExpenseServiceImplTest {
     }
 
     @Test
-    @DisplayName("updateExpense — 정확히 100%(9,900→10,000)에서 초과 알림 발생")
+    @DisplayName("updateExpense — 한도 +1(9,900→10,001)에서 초과 알림 발생")
     void updateOverAtExactly100() {
         User u = user(USER_ID);
         ExpenseCategory leaf = category(10L, u);
@@ -792,14 +851,15 @@ class ExpenseServiceImplTest {
         given(expenseRepository.findByDateRange(eq(USER_ID), any(), any())).willReturn(List.of(expense));
 
         var cmd = new ExpenseServiceDto.UpdateCommand(
-                Patch.set(10L), Patch.absent(), Patch.set(ExpenseType.EXPENSE), Patch.set(10_000L),
+                Patch.set(10L), Patch.absent(), Patch.set(ExpenseType.EXPENSE), Patch.set(10_001L),
                 Patch.set("x"), Patch.set(LocalDateTime.of(2026, 6, 1, 12, 0)), Patch.absent(), Patch.absent(), Patch.absent(),
             Patch.absent(),
             Patch.absent(),
             Patch.absent(), Patch.absent(), Patch.absent(), null);
         sut.updateExpense(5L, USER_ID, cmd);
 
-        verify(notificationService, times(1)).createNotification(any()); // before 0.99<1.0, after 1.0>=1.0 → OVER
+        // 초과 = 한도보다 클 때만(11-11). 정확히 10,000 이면 초과도 아니고(이미 85% 를 넘겨 둔 상태라) 근접도 새로 안 나간다.
+        verify(notificationService, times(1)).createNotification(any()); // before 0.99<=1.0, after 1.0001>1.0 → OVER
     }
 
     @Test
