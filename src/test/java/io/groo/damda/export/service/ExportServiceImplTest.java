@@ -1,5 +1,9 @@
 package io.groo.damda.export.service;
 
+import io.groo.damda.common.exception.DeskErrorCode;
+
+import io.groo.core.exception.InvalidValueException;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.groo.damda.dataimport.service.FileParser;
@@ -487,8 +491,8 @@ class ExportServiceImplTest {
         @DisplayName("빈 종류 목록은 거부(기간 해석·데이터 조회 이전에 실패)")
         void rejectsEmptyTypes() {
             assertThatThrownBy(() -> sut.counts(countReq(), USER_ID))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("1개 이상");
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.EXPORT_TYPE_REQUIRED);
             verifyNoInteractions(periodResolver, dataService);
         }
 
@@ -498,8 +502,8 @@ class ExportServiceImplTest {
             var req = new ExportApiDto.ExportRequest(
                 ExportFormat.CSV, ExportPeriod.THIS_MONTH, null, null, null, false);
             assertThatThrownBy(() -> sut.describe(req, USER_ID))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("1개 이상");
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.EXPORT_TYPE_REQUIRED);
             verifyNoInteractions(periodResolver, dataService);
         }
     }
