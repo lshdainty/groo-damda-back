@@ -47,7 +47,9 @@ public class UserCalendarServiceDto {
                 calendar.getSortOrder(),
                 calendar.getIsDefault() == YNType.Y,
                 calendar.getIsVisible() == YNType.Y,
-                calendar.getInviteCode(),
+                // 초대 코드는 소유자(공유 관리 권한 — CalendarRole.canManageMembers)에게만 내려 준다.
+                // 종전엔 읽기 전용 멤버의 목록 응답에도 실려, 코드를 받은 아무 멤버가 남을 들일 수 있었다(보안 점검 DAM-4 잔여).
+                myRole != null && myRole.canManageMembers() ? calendar.getInviteCode() : null,
                 memberCount > 1,
                 myRole == CalendarRole.OWNER,
                 myRole,
