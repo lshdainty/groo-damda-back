@@ -82,9 +82,11 @@ dependencies {
     // ==================== API Documentation ====================
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.0'
 
-    // ==================== Export (Excel) ====================
+    // ==================== Excel (내보내기·가져오기) ====================
     // 데이터 내보내기 — Excel(.xlsx) 생성. CSV/JSON 은 수동/Jackson(내장).
-    implementation 'org.apache.poi:poi-ooxml:5.3.0'
+    // 데이터 가져오기 — xlsx 를 SAX 로 읽는다(FileParser). 업로드 파일을 여는 자리라 버전을 묵히지 않는다:
+    // 5.3.0 은 이름이 겹치는 zip 항목을 거르지 않는 CVE-2025-31672 가 있어 5.4.0 이상이어야 한다(보안 점검 DAM-8).
+    implementation 'org.apache.poi:poi-ooxml:5.5.1'
 
     // ==================== Lombok ====================
     compileOnly 'org.projectlombok:lombok'
