@@ -377,6 +377,84 @@ class SsoSessionServiceTest {
         sut.revoke(SESSION_ID); // 예외 없음
     }
 
+    // ── SSO 로그인 계열 폐기 (보안 점검 CLI-2) ─────────────────────────────
+
+    @Test
+    @DisplayName("로그아웃하면 손에 든 SSO refresh 로 그 로그인의 SSO 계열도 끊는다 — 브라우저 쿠키까지")
+    void revoke_revokesSsoLoginFamily() {
+        UserSsoSession session = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(session));
+        given(ssoOAuth2Client.revokeRefreshToken("old-refresh")).willReturn(true);
+
+        sut.revoke(SESSION_ID);
+
+        // 암호문이 아니라 원본을 넘겨야 SSO 가 해시로 찾는다
+        verify(ssoOAuth2Client).revokeRefreshToken("old-refresh");
+        assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("SSO 가 폐기를 못 받아도 로그아웃은 끝난다")
+    void revoke_ssoFailure_stillLogsOut() {
+        UserSsoSession session = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(session));
+        given(ssoOAuth2Client.revokeRefreshToken(anyString())).willReturn(false);
+
+        sut.revoke(SESSION_ID); // 예외 없음
+
+        assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("refresh 를 풀다 터져도 로그아웃은 끝난다")
+    void revoke_decryptFailure_stillLogsOut() {
+        UserSsoSession session = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(session));
+        given(cipher.decrypt(anyString())).willThrow(new IllegalStateException("bad key"));
+
+        sut.revoke(SESSION_ID); // 예외 없음
+
+        assertThat(session.isActive()).isFalse();
+        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+    }
+
+    @Test
+    @DisplayName("세션 행이 없으면 SSO 에 보낼 refresh 도 없다 — 부르지 않는다")
+    void revoke_missingSession_doesNotCallSso() {
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.empty());
+
+        sut.revoke(SESSION_ID);
+
+        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+    }
+
+    @Test
+    @DisplayName("다른 기기에서 그 기기를 로그아웃시켜도 그 기기의 SSO 로그인을 끊는다")
+    void revokeOwned_revokesSsoLoginFamily() {
+        UserSsoSession mine = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(mine));
+
+        sut.revokeOwned(7L, SESSION_ID);
+
+        verify(ssoOAuth2Client).revokeRefreshToken("old-refresh");
+    }
+
+    @Test
+    @DisplayName("남의 세션이면 SSO 도 건드리지 않는다")
+    void revokeOwned_otherUsersSession_doesNotCallSso() {
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(liveSession()));
+
+        sut.revokeOwned(99L, SESSION_ID);
+
+        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+    }
+
     // ── 모든 기기 로그아웃 ────────────────────────────────────────────────
 
     @Test

@@ -149,7 +149,8 @@ public class SsoSessionService {
     }
 
     /**
-     * 로그아웃 — 이 기기 세션만 끊는다. 다른 기기는 살아 있어야 한다.
+     * 로그아웃 — 이 기기 세션만 끊는다. 다른 기기는 살아 있어야 한다. 이 세션을 만든 SSO 로그인
+     * (앱이면 시스템 브라우저에 남은 SSO 쿠키 포함)도 SSO 에서 함께 끊는다({@link #revokeSsoLogin}).
      *
      * <p>세션 행을 못 찾아도 폐기 표식은 남긴다. 로그아웃은 사용자가 명시적으로 누른 것이고,
      * 지금 손에 든 access token 은 어떤 경우에도 죽어야 한다. 행이 없을 수 있는 이유는
@@ -160,8 +161,32 @@ public class SsoSessionService {
     @Transactional
     public void revoke(String sessionId) {
         sessionRepository.findBySessionIdAndIsDeleted(sessionId, YNType.N)
-                .ifPresent(UserSsoSession::revoke);
+                .ifPresent(session -> {
+                    session.revoke();
+                    revokeSsoLogin(session);
+                });
         markRevoked(sessionId);
+    }
+
+    /**
+     * 이 세션을 만든 SSO 로그인의 토큰 계열을 SSO 에서 끊는다(보안 점검 CLI-2).
+     *
+     * <p>앱은 시스템 브라우저로 로그인해서, 앱에서 로그아웃해도 브라우저에 SSO refresh 쿠키(7일)가 남았다.
+     * 잠금이 풀린 기기를 쥔 사람이 브라우저로 담다 웹을 열면 비밀번호 없이 들어간다. 손에 든 refresh 로
+     * SSO 에 폐기를 요청하면 같은 로그인의 브라우저 쿠키도 함께 끊긴다. 다른 기기 · 다른 로그인은 그대로다.
+     *
+     * <p>실패해도 로그아웃은 진행한다 — 담다 세션은 이미 끊었고, SSO 가 잠깐 죽었다고 로그아웃이
+     * 에러가 되면 안 된다. 로그만 남긴다.
+     */
+    private void revokeSsoLogin(UserSsoSession session) {
+        try {
+            if (!ssoOAuth2Client.revokeRefreshToken(cipher.decrypt(session.getRefreshTokenEnc()))) {
+                log.warn("SSO 로그인 계열 폐기 실패 — 담다 세션만 끊었다. sessionId={}", session.getSessionId());
+            }
+        } catch (Exception e) {
+            log.error("SSO 로그인 계열 폐기 중 오류 — 담다 세션만 끊었다. sessionId={}, err={}",
+                    session.getSessionId(), e.getMessage());
+        }
     }
 
     /**
@@ -206,6 +231,9 @@ public class SsoSessionService {
                     // 소유자 확인을 통과한 뒤에만 끊는다. 확인 전에 표식을 남기면 세션 id 만
                     // 아는 사람이 남의 기기를 끊을 수 있다.
                     kill(s);
+                    // 그 기기의 브라우저에 남은 SSO 로그인도 함께 끊는다 — 잃어버린 폰의 앱을 다른 기기에서
+                    // 로그아웃시켜도 그 폰의 브라우저로 다시 들어오지 못하게(보안 점검 CLI-2)
+                    revokeSsoLogin(s);
                     return true;
                 })
                 .orElse(false);
