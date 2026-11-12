@@ -187,10 +187,9 @@ public class RecurringTransactionServiceImpl implements RecurringTransactionServ
         RecurringTransaction recurring = findRecurringOrThrow(recurringId);
         validateRecurringOwnership(recurring, userRowId);
 
-        // 규칙 소유는 위에서 확인했다. 카테고리 소유 재확인은 종전 동작에 없다 — 정리 PR 이라
-        // 여기서 늘리지 않는다(생성은 resolveOwnedCategory 로 계속 본다).
-        ExpenseCategory category =
-            reservationRefs.resolveCategory(command.expenseType(), command.categoryRowId());
+        // 카테고리도 생성과 같이 소유를 본다 — 종전엔 남의 카테고리 번호를 붙일 수 있었다(보안 점검 DAM-7).
+        ExpenseCategory category = reservationRefs.resolveOwnedCategory(
+            command.expenseType(), command.categoryRowId(), userRowId);
 
         Asset asset = reservationRefs.findOwnedAsset(command.assetRowId(), userRowId);
         Asset toAsset = reservationRefs.findOwnedAsset(command.toAssetRowId(), userRowId);

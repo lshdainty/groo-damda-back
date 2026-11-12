@@ -44,28 +44,30 @@ public class ReservationRefs {
     private final ExpenseCategoryRepository expenseCategoryRepository;
     private final AssetRepository assetRepository;
 
-    /** 생성 경로 — id 가 없으면 null. 있으면 찾고, 남의 것인지 보고, 규칙까지 본다. */
+    /** 생성·수정 경로 — id 가 없으면 null. 있으면 찾고, 남의 것인지 보고, 규칙까지 본다. */
     public ExpenseCategory resolveOwnedCategory(TxKind kind, Long categoryRowId, Long userRowId) {
+        ExpenseCategory category = findOwnedCategory(categoryRowId, userRowId);
+        validateCategory(kind, category);
+        return category;
+    }
+
+    /**
+     * id 가 없으면 null. 있으면 찾고 남의 카테고리인지 본다 — 규칙 판정은 호출자가 병합한 짝으로 한다.
+     *
+     * <p>종전엔 반복 거래·프리셋 <b>수정</b>이 소유를 보지 않아 남의 카테고리 번호를 붙일 수 있었고,
+     * 응답에 그 카테고리 이름이 실려 번호 순으로 읽혔다(보안 점검 DAM-7).
+     */
+    public ExpenseCategory findOwnedCategory(Long categoryRowId, Long userRowId) {
         if (categoryRowId == null) {
             return null;
         }
-        ExpenseCategory category = findCategoryOrThrow(categoryRowId);
+        ExpenseCategory category = expenseCategoryRepository.findById(categoryRowId)
+            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.EXPENSE_CATEGORY_NOT_FOUND));
         if (!category.getUser().getRowId().equals(userRowId)) {
             log.warn("지출 카테고리 소유권 검증 실패 - categoryId={}, ownerRowId={}, requestUserRowId={}",
                 category.getRowId(), category.getUser().getRowId(), userRowId);
             throw new ForbiddenException(DeskErrorCode.EXPENSE_ACCESS_DENIED);
         }
-        validateCategory(kind, category);
-        return category;
-    }
-
-    /** 반복 수정 — id 가 없으면 null. 있으면 찾고 규칙만 본다. */
-    public ExpenseCategory resolveCategory(TxKind kind, Long categoryRowId) {
-        if (categoryRowId == null) {
-            return null;
-        }
-        ExpenseCategory category = findCategoryOrThrow(categoryRowId);
-        validateCategory(kind, category);
         return category;
     }
 
@@ -104,8 +106,4 @@ public class ReservationRefs {
         return asset;
     }
 
-    private ExpenseCategory findCategoryOrThrow(Long categoryRowId) {
-        return expenseCategoryRepository.findById(categoryRowId)
-            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.EXPENSE_CATEGORY_NOT_FOUND));
-    }
 }

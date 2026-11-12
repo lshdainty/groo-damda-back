@@ -119,9 +119,9 @@ public class ExpenseTemplateServiceImpl implements ExpenseTemplateService {
 
         // 조회가 필요한 칸(카테고리·자산)은 <b>실렸을 때만</b> 찾는다 — 안 보낸 요청이
         // 붙여 둔 카테고리·자산을 떼면 안 되고, 없는 값을 조회하면 404 가 난다.
+        // 남의 카테고리 번호는 받지 않는다(보안 점검 DAM-7) — 생성과 같은 소유 확인.
         ExpenseCategory category = command.categoryRowId()
-            .map(rowId -> expenseCategoryRepository.findById(rowId)
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.EXPENSE_CATEGORY_NOT_FOUND)))
+            .map(rowId -> reservationRefs.findOwnedCategory(rowId, userRowId))
             .orKeep(template.getCategory());
         // 판정은 <b>병합된 짝</b>으로 한다 — 종전엔 categoryRowId 를 안 보내면 카테고리가
         // 통째로 null 이 되어 검사할 짝이 없었다. 그래서 여기만 "이미 정해진 것" 을 넘긴다.
