@@ -316,6 +316,9 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     IMPORT_UNSUPPORTED_FORMAT("IMPORT_003", "error.import.unsupported.format", HttpStatus.BAD_REQUEST),
     IMPORT_MAPPING_REQUIRED("IMPORT_004", "error.import.mapping.required", HttpStatus.BAD_REQUEST),
     IMPORT_TOO_MANY_ROWS("IMPORT_005", "error.import.too.many.rows", HttpStatus.BAD_REQUEST),
+    // 열 수 상한(FileParser.MAX_COLUMNS) · 암호 걸린 엑셀(보안 점검 DAM-6 잔여).
+    IMPORT_TOO_MANY_COLUMNS("IMPORT_006", "error.import.too.many.columns", HttpStatus.BAD_REQUEST),
+    IMPORT_ENCRYPTED_FILE("IMPORT_007", "error.import.encrypted.file", HttpStatus.BAD_REQUEST),
 
     // Stock (종목 마스터·관심목록)
     STOCK_NOT_FOUND("STOCK_001", "error.notfound.stock", HttpStatus.NOT_FOUND),

@@ -6,6 +6,7 @@ import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
 import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.poifs.filesystem.FileMagic;
+import org.apache.poi.poifs.filesystem.POIFSFileSystem;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.ExcelNumberFormat;
@@ -79,6 +80,17 @@ public final class FileParser {
      */
     static final long MAX_XLSX_ENTRY_BYTES = 200L * 1024 * 1024;
 
+    /**
+     * 열 수 상한 — 머리글 폭과 행 하나에서 받아 두는 칸 수.
+     *
+     * <p>종전엔 머리글 폭에 제한이 없어 모든 행을 그 폭으로 늘렸다 — 머리글 10만 칸 × 20만 행이면 빈 칸만으로
+     * 메모리가 폭발한다. xlsx 는 열 참조({@code XFD} = 16,384번째)만으로 앞 칸을 빈 값으로 채웠다(보안 점검 DAM-6 잔여).
+     *
+     * <p>근거 — 가져오기 프리셋의 실제 최대 열 수가 10 이다(담다 백업 9 · 뱅크샐러드 10 · 편한가계부 A~G 7 ·
+     * 토스 거래내역 10 안쪽). 직접 만든 파일(CUSTOM)을 위해 다섯 배 넉넉히 둔다. 넘으면 조용히 자르지 않고 거부한다.
+     */
+    static final int MAX_COLUMNS = 50;
+
     /** 셀 하나의 최대 글자 수 — 엑셀이 셀에 담을 수 있는 한도(32,767자)와 같다. 넘으면 엑셀 파일이 아니다. */
     static final int MAX_CELL_CHARS = 32_767;
 
@@ -123,6 +135,7 @@ public final class FileParser {
         public void accept(List<String> row) {
             if (headers == null) {
                 headers = trimTrailingEmpty(row);
+                ensureWithinColumnLimit(headers.size());
                 width = headers.size();
                 return;
             }
@@ -171,14 +184,23 @@ public final class FileParser {
                 field.append(c);
             } else {
                 if (c == '"') { inQuotes = true; }
-                else if (c == ',') { cur.add(field.toString()); field.setLength(0); }
+                else if (c == ',') { addCapped(cur, field); }
                 else if (c == '\r') { /* skip */ }
-                else if (c == '\n') { cur.add(field.toString()); field.setLength(0); sink.accept(cur); cur = new ArrayList<>(); }
+                else if (c == '\n') { addCapped(cur, field); sink.accept(cur); cur = new ArrayList<>(); }
                 else { field.append(c); }
             }
             ch = in.read();
         }
-        if (field.length() > 0 || !cur.isEmpty()) { cur.add(field.toString()); sink.accept(cur); }
+        if (field.length() > 0 || !cur.isEmpty()) { addCapped(cur, field); sink.accept(cur); }
+    }
+
+    /**
+     * 칸을 하나 넣는다 — 행마다 {@link #MAX_COLUMNS} + 1 칸까지만 들고 그 뒤는 버린다. 한 칸을 더 드는 이유는
+     * 머리글이 상한을 넘었는지 알아보기 위해서다(데이터 행은 어차피 머리글 폭으로 잘린다).
+     */
+    private static void addCapped(List<String> cur, StringBuilder field) {
+        if (cur.size() <= MAX_COLUMNS) cur.add(field.toString());
+        field.setLength(0);
     }
 
     // ── Excel ────────────────────────────────────────────────
@@ -304,10 +326,18 @@ public final class FileParser {
                 case "rPh" -> inPhonetic = false;
                 case "c" -> {
                     if (cells == null) return;
-                    while (cells.size() < col) cells.add("");
-                    if (cells.size() == col) cells.add(cellValue());
-                    else cells.set(col, cellValue());
                     nextCol = col + 1;
+                    String v = cellValue();
+                    // 상한 밖 열은 빈 칸으로 채워 가며 늘리지 않는다 — 열 참조 하나(XFD1)로 1만 6천 칸이 생겼다.
+                    // 값이 있으면 상한 + 1 번째 칸에 표시만 남겨 머리글이 넘쳤는지 알아본다(데이터 행은 머리글 폭으로 잘린다).
+                    int at = col;
+                    if (at > MAX_COLUMNS) {
+                        if (v.isBlank()) return;
+                        at = MAX_COLUMNS;
+                    }
+                    while (cells.size() < at) cells.add("");
+                    if (cells.size() == at) cells.add(v);
+                    else cells.set(at, v);
                 }
                 case "row" -> {
                     if (cells != null) sink.accept(cells);
@@ -351,7 +381,19 @@ public final class FileParser {
 
     /** xls(OLE2) — 압축이 없어 업로드 상한(10MB)이 곧 메모리 상한이다. 통합 문서로 읽는다. */
     private static ParsedFile parseWorkbook(InputStream is) throws Exception {
-        try (Workbook wb = WorkbookFactory.create(is)) {
+        try (POIFSFileSystem fs = new POIFSFileSystem(is)) {
+            // 암호 걸린 xlsx 는 OLE2 봉투(EncryptedPackage)에 담겨 이 경로로 온다. WorkbookFactory 는 엑셀 기본 암호
+            // ("VelvetSweatshop")로 풀어 통합 문서 전체를 메모리에 올린다 — 스트리밍 · 항목 크기 한도를 모두 비켜 간다
+            // (실행으로 확인, 보안 점검 DAM-6 잔여). 암호 걸린 파일은 받지 않는다.
+            if (fs.getRoot().hasEntry("EncryptedPackage")) {
+                throw new InvalidValueException(DeskErrorCode.IMPORT_ENCRYPTED_FILE);
+            }
+            return parseWorkbook(fs);
+        }
+    }
+
+    private static ParsedFile parseWorkbook(POIFSFileSystem fs) throws Exception {
+        try (Workbook wb = WorkbookFactory.create(fs)) {
             Sheet sheet = wb.getSheetAt(0);
             if (sheet == null) return new ParsedFile(List.of(), List.of());
             Row headerRow = sheet.getRow(sheet.getFirstRowNum());
@@ -361,6 +403,7 @@ public final class FileParser {
             List<String> headers = new ArrayList<>();
             for (int c = 0; c < width; c++) headers.add(cellToString(headerRow.getCell(c)));
             headers = trimTrailingEmpty(headers);
+            ensureWithinColumnLimit(headers.size());
             int w = headers.size();
 
             List<List<String>> rows = new ArrayList<>();
@@ -411,6 +454,12 @@ public final class FileParser {
     }
 
     // ── 공통 ─────────────────────────────────────────────────
+
+    private static void ensureWithinColumnLimit(int columns) {
+        if (columns > MAX_COLUMNS) {
+            throw new InvalidValueException(DeskErrorCode.IMPORT_TOO_MANY_COLUMNS);
+        }
+    }
 
     /** 상한 초과는 조용히 자르지 않고 거부한다 — 잘린 줄 모르고 넘어가는 게 더 위험하다. */
     private static void ensureWithinLimit(int rowCount) {
