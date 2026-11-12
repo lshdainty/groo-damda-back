@@ -1,5 +1,7 @@
 package io.groo.damda.calendar.service;
 
+import io.groo.damda.calendar.service.dto.UserCalendarServiceDto;
+
 import static org.mockito.Mockito.verify;
 
 import static org.mockito.Mockito.times;
@@ -133,6 +135,17 @@ class UserCalendarServiceImplTest {
                 new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
 
         assertThat(real.toggleVisibility(CAL_ID, MEMBER_ID).isVisible()).isFalse();
+    }
+
+    @Test
+    @DisplayName("초대 코드는 소유자 응답에만 실린다 — 편집 · 읽기 전용 멤버의 목록에는 없다(보안 점검 DAM-4 잔여)")
+    void inviteCodeOnlyForOwner() {
+        UserCalendar calendar = calendar(false);
+        String code = calendar.issueInviteCode();
+
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.OWNER, 3).inviteCode()).isEqualTo(code);
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.EDIT, 3).inviteCode()).isNull();
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.READ, 3).inviteCode()).isNull();
     }
 
     @Test
