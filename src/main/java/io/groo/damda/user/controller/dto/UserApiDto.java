@@ -182,7 +182,7 @@ public class UserApiDto {
         @NotBlank
         @Pattern(regexp = "\\d{6}", message = "숫자 6자리를 입력해주세요")
         private String code;
-        /** 무엇을 하려고 확인하는지({@code withdraw}·{@code oauth-link}). 없으면 해지. */
+        /** 무엇을 하려고 확인하는지({@code withdraw}·{@code oauth-link}·{@code oauth-unlink}). 없으면 해지. */
         private String purpose;
     }
 
@@ -192,7 +192,7 @@ public class UserApiDto {
     public static class ReauthPasswordReq {
         @NotBlank
         private String password;
-        /** 무엇을 하려고 확인하는지({@code withdraw}·{@code oauth-link}). 없으면 해지. */
+        /** 무엇을 하려고 확인하는지({@code withdraw}·{@code oauth-link}·{@code oauth-unlink}). 없으면 해지. */
         private String purpose;
     }
 
