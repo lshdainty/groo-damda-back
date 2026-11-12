@@ -305,4 +305,91 @@ class FileParserStreamingTest {
             assertThat(p.rows().get(0)).containsExactly("5700");
         }
     }
+
+    // ── 열 수 · 암호 (보안 점검 DAM-6 잔여) ─────────────────────
+
+    private static MockMultipartFile csvOf(String content) {
+        return new MockMultipartFile("file", "t.csv", "text/csv", content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Nested
+    @DisplayName("열 수 상한(50)")
+    class Columns {
+
+        @Test
+        @DisplayName("CSV 머리글이 10만 칸이면 거부한다 — 종전엔 모든 행을 그 폭으로 늘렸다")
+        void csvHugeHeaderRejected() {
+            String header = String.join(",", java.util.Collections.nCopies(100_000, "h"));
+            assertThatThrownBy(() -> FileParser.parse(csvOf(header + "\n1\n2\n")))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.IMPORT_TOO_MANY_COLUMNS);
+        }
+
+        @Test
+        @DisplayName("머리글 50칸은 받고 51칸은 거부한다. 끝의 빈 머리글은 세지 않는다")
+        void boundary() {
+            String h50 = String.join(",", java.util.Collections.nCopies(50, "h"));
+            assertThat(FileParser.parse(csvOf(h50 + ",,,,\n1\n")).headers()).hasSize(50);
+            assertThatThrownBy(() -> FileParser.parse(csvOf(h50 + ",h\n1\n")))
+                .isInstanceOf(InvalidValueException.class);
+        }
+
+        @Test
+        @DisplayName("데이터 행에 칸이 아무리 많아도 머리글 폭으로 자른다")
+        void csvWideDataRowTruncated() {
+            String row = "1,2" + ",x".repeat(100_000);
+            ParsedFile p = FileParser.parse(csvOf("A,B\n" + row + "\n"));
+            assertThat(p.rows()).singleElement().isEqualTo(java.util.List.of("1", "2"));
+        }
+
+        @Test
+        @DisplayName("xlsx 머리글의 먼 열(XFD1)에 값이 있으면 거부한다")
+        void xlsxFarHeaderCellRejected() throws Exception {
+            String sheet = "<row r=\"1\">" + inline("A1", "금액") + inline("XFD1", "끝") + "</row>"
+                + "<row r=\"2\"><c r=\"A2\"><v>1</v></c></row>";
+            assertThatThrownBy(() -> FileParser.parse(xlsx(minimalXlsx(sheet, false))))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.IMPORT_TOO_MANY_COLUMNS);
+        }
+
+        @Test
+        @DisplayName("xlsx 데이터 행의 먼 열은 빈 칸으로 늘리지 않고 버린다 — 열 참조 하나로 1만 6천 칸이 생기던 자리")
+        void xlsxFarDataCellIgnored() throws Exception {
+            StringBuilder sheet = new StringBuilder("<row r=\"1\">" + inline("A1", "금액") + "</row>");
+            for (int r = 2; r <= 2_001; r++) {
+                sheet.append("<row r=\"").append(r).append("\"><c r=\"A").append(r).append("\"><v>")
+                    .append(r).append("</v></c>").append(inline("XFD" + r, "x")).append("</row>");
+            }
+            ParsedFile p = FileParser.parse(xlsx(minimalXlsx(sheet.toString(), false)));
+            assertThat(p.headers()).containsExactly("금액");
+            assertThat(p.rows()).hasSize(2_000).allSatisfy(row -> assertThat(row).hasSize(1));
+        }
+    }
+
+    @Test
+    @DisplayName("암호 걸린 xlsx(엑셀 기본 암호)는 거부한다 — 종전엔 풀어서 통합 문서 전체를 메모리에 올렸다(실행 확인)")
+    void encryptedXlsxRejected() throws Exception {
+        byte[] plain;
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream b = new ByteArrayOutputStream()) {
+            wb.createSheet("x").createRow(0).createCell(0).setCellValue("금액");
+            wb.write(b);
+            plain = b.toByteArray();
+        }
+        byte[] encrypted;
+        try (org.apache.poi.poifs.filesystem.POIFSFileSystem fs = new org.apache.poi.poifs.filesystem.POIFSFileSystem();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            var info = new org.apache.poi.poifs.crypt.EncryptionInfo(org.apache.poi.poifs.crypt.EncryptionMode.agile);
+            var enc = info.getEncryptor();
+            enc.confirmPassword("VelvetSweatshop");
+            try (java.io.OutputStream os = enc.getDataStream(fs)) {
+                os.write(plain);
+            }
+            fs.writeFilesystem(out);
+            encrypted = out.toByteArray();
+        }
+
+        assertThatThrownBy(() -> FileParser.parse(xlsx(encrypted)))
+            .isInstanceOf(InvalidValueException.class)
+            .extracting("errorCode").isEqualTo(DeskErrorCode.IMPORT_ENCRYPTED_FILE);
+    }
 }
