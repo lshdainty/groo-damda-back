@@ -9,15 +9,18 @@ import io.groo.damda.security.session.repository.UserSsoSessionRepository;
 import io.groo.damda.security.session.store.SessionRevocationStore;
 import io.groo.damda.security.session.support.UserAgentParser;
 import io.groo.damda.security.session.controller.dto.SessionApiDto;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * 기기별 SSO 세션 관리 — 로그인 때 refresh token 을 받아 두었다가, desk access token 이
@@ -28,7 +31,6 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SsoSessionService {
 
     /**
@@ -41,12 +43,48 @@ public class SsoSessionService {
      */
     private static final long REFRESH_GRACE_SECONDS = 30L;
 
+    /**
+     * 같은 세션의 앞선 재발급을 기다리는 최대 시간(초). 앞선 요청의 SSO 호출 한 번
+     * (연결 5초 + 읽기 10초)보다 길어야 뒤따라온 요청이 그 결과를 받아 간다. 넘기면 이번 요청만
+     * 재발급 없이 흘려보낸다(종전 행 잠금 대기가 DB 잠금 타임아웃으로 끝나던 것과 같은 결말).
+     */
+    private static final long REFRESH_QUEUE_TIMEOUT_SECONDS = 20L;
 
     private final UserSsoSessionRepository sessionRepository;
     private final SsoOAuth2Client ssoOAuth2Client;
     private final AesGcmCipher cipher;
     private final JwtProperties jwtProperties;
     private final SessionRevocationStore revocationStore;
+
+    /** 재발급의 판정·반영 구간만 짧게 감싼다. SSO 호출은 이 밖에서 한다. */
+    private final TransactionTemplate refreshTx;
+
+    /**
+     * 같은 세션의 재발급을 한 줄로 세운다 — SSO 호출 동안 DB 행 잠금 대신 이걸 쥔다.
+     *
+     * <p>종전엔 행 잠금(PESSIMISTIC_WRITE)을 쥔 채 SSO 를 불러, SSO 가 느리면 요청마다 커넥션과
+     * 행 잠금이 최대 10초씩 묶였다. 같은 세션의 동시 요청들도 잠금을 기다리며 커넥션을 하나씩
+     * 쥐었다(풀 기본 10). 이제 줄은 프로세스 안에서 서고, 기다리는 동안 커넥션을 쥐지 않는다.
+     *
+     * <p>프로세스 안 잠금이라 <b>인스턴스가 하나</b>라는 전제다(Jenkins 가 환경마다 컨테이너 하나를
+     * 띄운다). 여럿으로 늘리면 인스턴스 사이의 줄은 반영 단계의 행 잠금 재확인만 남는다 —
+     * 그때는 공유 잠금(Redis 등)으로 바꿔야 한다.
+     */
+    private final KeyedMutex refreshMutex = new KeyedMutex();
+
+    public SsoSessionService(UserSsoSessionRepository sessionRepository,
+                             SsoOAuth2Client ssoOAuth2Client,
+                             AesGcmCipher cipher,
+                             JwtProperties jwtProperties,
+                             SessionRevocationStore revocationStore,
+                             PlatformTransactionManager transactionManager) {
+        this.sessionRepository = sessionRepository;
+        this.ssoOAuth2Client = ssoOAuth2Client;
+        this.cipher = cipher;
+        this.jwtProperties = jwtProperties;
+        this.revocationStore = revocationStore;
+        this.refreshTx = new TransactionTemplate(transactionManager);
+    }
 
     /**
      * 재발급 결과.
@@ -93,11 +131,86 @@ public class SsoSessionService {
      *   <li>SSO 가 응답 못 함(5xx·타임아웃) → 세션은 그대로 둔다. 이번 요청만 401 이고 다음에 다시 시도된다.</li>
      * </ul>
      */
-    @Transactional
     public RefreshResult refresh(String sessionId) {
+        return refresh(sessionId, ssoAccessToken -> { });
+    }
+
+    /**
+     * 만료된 세션 재발급 — SSO 를 부르는 동안에는 <b>트랜잭션도 커넥션도 쥐지 않는다</b>(보안 점검 DAM-5 잔여).
+     *
+     * <p>세 단계로 나눈다.
+     * <ol>
+     *   <li><b>판정</b>(짧은 트랜잭션) — 세션이 살아 있는지, 미끄럼·절대 수명, 방금 갱신됐는지 보고
+     *       부를 refresh token 을 읽어 둔다.</li>
+     *   <li><b>SSO 호출</b>(트랜잭션 밖) — 느려도 DB 는 아무것도 묶이지 않는다.</li>
+     *   <li><b>반영</b>(짧은 트랜잭션, 행 잠금) — 행을 다시 읽어 그 사이 끊겼거나(로그아웃) 다른 곳에서
+     *       이미 갈아끼웠으면 손대지 않는다. 아니면 회전하고 {@code beforeCommit} 을 부른다.</li>
+     * </ol>
+     * 같은 세션의 동시 요청은 세 단계 전체를 {@link #refreshMutex} 로 한 줄에 세운다. 줄의 둘째부터는
+     * 판정 단계에서 "방금 갱신됨" 을 보고 SSO 를 부르지 않는다 — rotation 으로 앞선 요청이 방금 받은
+     * 토큰이 폐기되는 경합이 그대로 막힌다.
+     *
+     * <p><b>트랜잭션 안에서 부르지 마라.</b> 바깥 트랜잭션이 있으면 단계들이 거기 합류해 SSO 호출 동안
+     * 커넥션을 다시 쥐게 된다. {@code SsoSessionRefreshConnectionTest} 가 필터 경로로 이 자리를 지킨다.
+     *
+     * @param beforeCommit SSO 가 새 토큰을 줬을 때, 회전을 커밋하기 직전 <b>같은 트랜잭션 안에서</b> 새
+     *                     SSO access token 으로 부른다. 던지면 회전이 함께 롤백된다 — desk 토큰 발급
+     *                     검증(권한·사용자)이 실패했는데 세션만 갱신된 채 남지 않게.
+     */
+    public RefreshResult refresh(String sessionId, Consumer<String> beforeCommit) {
+        boolean locked;
+        try {
+            locked = refreshMutex.tryLock(sessionId, REFRESH_QUEUE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return RefreshResult.failed();
+        }
+        if (!locked) {
+            log.warn("재발급 대기 시간 초과 — 앞선 요청의 SSO 호출이 끝나지 않았다. sessionId={}", sessionId);
+            return RefreshResult.failed();
+        }
+        try {
+            return refreshInLine(sessionId, beforeCommit);
+        } finally {
+            refreshMutex.unlock(sessionId);
+        }
+    }
+
+    /** 이 세션의 재발급 줄에 걸린(진행 중이거나 기다리는) 요청 수 — 테스트용. */
+    int refreshQueueLength(String sessionId) {
+        return refreshMutex.queueLength(sessionId);
+    }
+
+    /** 판정 단계의 결과 — 결론이 났거나({@code decided}), SSO 를 부를 refresh token 암호문. */
+    private record Inspection(RefreshResult decided, String refreshTokenEnc) {
+        static Inspection decided(RefreshResult result) { return new Inspection(result, null); }
+        static Inspection callSso(String refreshTokenEnc) { return new Inspection(null, refreshTokenEnc); }
+    }
+
+    private RefreshResult refreshInLine(String sessionId, Consumer<String> beforeCommit) {
+        Inspection inspection = refreshTx.execute(status -> inspect(sessionId));
+        if (inspection.decided() != null) {
+            return inspection.decided();
+        }
+
+        // 트랜잭션 밖 — SSO 가 느려도 커넥션·행 잠금을 쥐고 있지 않다.
+        SsoOAuth2Client.TokenPair pair;
+        try {
+            pair = ssoOAuth2Client.refreshTokens(cipher.decrypt(inspection.refreshTokenEnc()));
+        } catch (Exception e) {
+            // 일시적 장애 — 세션을 끊지 않는다. 여기서 끊으면 SSO 재시작 한 번에 전원이 로그아웃된다.
+            log.error("SSO 재발급 호출 실패(일시적으로 본다). sessionId={}, err={}", sessionId, e.getMessage());
+            return RefreshResult.failed();
+        }
+
+        return refreshTx.execute(status -> apply(sessionId, inspection.refreshTokenEnc(), pair, beforeCommit));
+    }
+
+    /** 판정 — SSO 를 부를지, 부르지 않고 끝낼지. */
+    private Inspection inspect(String sessionId) {
         UserSsoSession session = sessionRepository.findForRefresh(sessionId, YNType.N).orElse(null);
         if (session == null) {
-            return RefreshResult.failed();
+            return Inspection.decided(RefreshResult.failed());
         }
 
         LocalDateTime now = now();
@@ -105,7 +218,7 @@ public class SsoSessionService {
             // 어차피 SSO 가 거부한다. 부르지 않고 여기서 끊는다.
             log.info("SSO 세션 만료 — 재로그인 필요. sessionId={}", sessionId);
             kill(session);
-            return RefreshResult.failed();
+            return Inspection.decided(RefreshResult.failed());
         }
 
         // 절대 수명 — 로그인부터 30일. 미끄럼 수명과 달리 쓰는 동안에도 늘어나지 않는다(보안 점검 DAM-5).
@@ -113,21 +226,31 @@ public class SsoSessionService {
         if (session.isPastAbsoluteLifetime(now, jwtProperties.getAbsoluteSessionLifetime() / 1000)) {
             log.info("세션 절대 수명 경과 — 재로그인 필요. sessionId={}", sessionId);
             kill(session);
-            return RefreshResult.failed();
+            return Inspection.decided(RefreshResult.failed());
         }
 
-        // 락을 잡고 보니 앞선 요청이 이미 갱신해 뒀다. 또 부르면 방금 받은 토큰이 폐기된다.
+        // 줄을 서고 보니 앞선 요청이 이미 갱신해 뒀다. 또 부르면 방금 받은 토큰이 폐기된다.
         if (session.refreshedWithin(now, REFRESH_GRACE_SECONDS)) {
-            return RefreshResult.reusedExisting();
+            return Inspection.decided(RefreshResult.reusedExisting());
         }
 
-        SsoOAuth2Client.TokenPair pair;
-        try {
-            pair = ssoOAuth2Client.refreshTokens(cipher.decrypt(session.getRefreshTokenEnc()));
-        } catch (Exception e) {
-            // 일시적 장애 — 세션을 끊지 않는다. 여기서 끊으면 SSO 재시작 한 번에 전원이 로그아웃된다.
-            log.error("SSO 재발급 호출 실패(일시적으로 본다). sessionId={}, err={}", sessionId, e.getMessage());
+        return Inspection.callSso(session.getRefreshTokenEnc());
+    }
+
+    /** 반영 — SSO 결과를 세션에 적는다. 그 사이 바뀐 행은 덮지 않는다. */
+    private RefreshResult apply(String sessionId, String usedRefreshTokenEnc,
+                                SsoOAuth2Client.TokenPair pair, Consumer<String> beforeCommit) {
+        UserSsoSession session = sessionRepository.findForRefresh(sessionId, YNType.N).orElse(null);
+        if (session == null) {
+            // SSO 를 부르는 사이 끊겼다(로그아웃·기기 로그아웃·해지). 되살리지 않는다.
+            log.info("재발급 중 세션이 끊겼다 — 반영하지 않는다. sessionId={}", sessionId);
             return RefreshResult.failed();
+        }
+        if (!usedRefreshTokenEnc.equals(session.getRefreshTokenEnc())) {
+            // 다른 곳이 먼저 갈아끼웠다(이 프로세스의 줄 밖 — 다른 인스턴스). 방금 SSO 확인을 거친
+            // 세션이니 유예 창과 같게 본다. 우리 쪽 결과로 덮거나, 경합에 진 거부로 끊지 않는다.
+            log.info("재발급 중 다른 곳에서 세션이 갱신됐다 — 그 결과를 쓴다. sessionId={}", sessionId);
+            return RefreshResult.reusedExisting();
         }
 
         if (pair == null) {
@@ -144,7 +267,9 @@ public class SsoSessionService {
             return RefreshResult.failed();
         }
 
+        LocalDateTime now = now();
         session.rotate(cipher.encrypt(pair.refreshToken()), sessionExpiry(now), now);
+        beforeCommit.accept(pair.accessToken());
         return RefreshResult.fromSso(pair.accessToken());
     }
 

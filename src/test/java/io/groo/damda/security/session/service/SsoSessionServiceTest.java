@@ -56,7 +56,8 @@ class SsoSessionServiceTest {
         props.setAccessTokenExpiration(3_600_000L); // 폐기 표식 TTL 의 근거
         // 폐기 표식이 실제로 남는지는 SsoSessionServiceRevocationTest 가 본다.
         sut = new SsoSessionService(
-                sessionRepository, ssoOAuth2Client, cipher, props, new InMemorySessionRevocationStore());
+                sessionRepository, ssoOAuth2Client, cipher, props, new InMemorySessionRevocationStore(),
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
 
         given(cipher.isConfigured()).willReturn(true);
         given(cipher.encrypt(anyString())).willAnswer(inv -> "enc(" + inv.getArgument(0) + ")");
@@ -296,6 +297,81 @@ class SsoSessionServiceTest {
 
         assertThat(sut.refresh(SESSION_ID).renewed()).isFalse();
         assertThat(session.isActive()).isFalse();
+    }
+
+    // ── refresh: SSO 호출 중 바뀐 행 (DAM-5 잔여 — SSO 호출을 트랜잭션 밖으로 뺀 뒤) ──────────
+
+    /** 끊긴 세션은 잠금 조회에 안 잡힌다 — 실제 쿼리의 is_deleted 조건을 흉내 낸다. */
+    private void givenLiveRowOnly(UserSsoSession session) {
+        given(sessionRepository.findForRefresh(SESSION_ID, YNType.N))
+                .willAnswer(inv -> session.isActive() ? Optional.of(session) : Optional.empty());
+    }
+
+    @Test
+    @DisplayName("SSO 를 부르는 사이 로그아웃됐으면 되살리지 않는다 — 새 refresh 를 적지 않는다")
+    void refresh_loggedOutDuringSsoCall_doesNotResurrect() {
+        UserSsoSession session = liveSession();
+        givenLiveRowOnly(session);
+        given(ssoOAuth2Client.refreshTokens("old-refresh")).willAnswer(inv -> {
+            session.revoke(); // 그 사이 다른 요청이 로그아웃
+            return new SsoOAuth2Client.TokenPair("new-access", "new-refresh");
+        });
+
+        SsoSessionService.RefreshResult result = sut.refresh(SESSION_ID);
+
+        assertThat(result.renewed()).isFalse();
+        assertThat(session.isActive()).isFalse();
+        assertThat(session.getRefreshTokenEnc()).isEqualTo("enc(old-refresh)");
+    }
+
+    @Test
+    @DisplayName("SSO 를 부르는 사이 다른 곳이 먼저 갱신했으면 — 경합에 진 거부로 세션을 끊지 않는다")
+    void refresh_rotatedElsewhereDuringSsoCall_keepsWinnerToken() {
+        UserSsoSession session = liveSession();
+        givenLiveRowOnly(session);
+        given(ssoOAuth2Client.refreshTokens("old-refresh")).willAnswer(inv -> {
+            // 줄 밖(다른 인스턴스)이 같은 old-refresh 로 먼저 회전했다 → 우리 호출은 rotation 으로 거부
+            session.rotate("enc(winner-refresh)", nowUtc().plusDays(7), nowUtc());
+            return null;
+        });
+
+        SsoSessionService.RefreshResult result = sut.refresh(SESSION_ID);
+
+        assertThat(result.renewed()).isTrue();
+        assertThat(result.ssoAccessToken()).isNull();
+        assertThat(session.isActive()).as("이긴 쪽이 방금 받은 토큰을 지켜야 한다").isTrue();
+        assertThat(session.getRefreshTokenEnc()).isEqualTo("enc(winner-refresh)");
+    }
+
+    @Test
+    @DisplayName("회전 직전 콜백에 새 SSO access token 이 넘어간다 — 회전과 같은 트랜잭션에서 desk 토큰을 만든다")
+    void refresh_passesNewAccessTokenToBeforeCommit() {
+        UserSsoSession session = liveSession();
+        givenSession(session);
+        given(ssoOAuth2Client.refreshTokens("old-refresh"))
+                .willReturn(new SsoOAuth2Client.TokenPair("new-sso-access", "new-refresh"));
+        List<String> seen = new java.util.ArrayList<>();
+
+        sut.refresh(SESSION_ID, token -> {
+            // 콜백 시점엔 이미 회전돼 있다 — 커밋 전, 같은 트랜잭션
+            assertThat(session.getRefreshTokenEnc()).isEqualTo("enc(new-refresh)");
+            seen.add(token);
+        });
+
+        assertThat(seen).containsExactly("new-sso-access");
+    }
+
+    @Test
+    @DisplayName("SSO 장애·거부·유예 재사용에는 콜백을 부르지 않는다 — desk 토큰은 SSO 가 새로 준 때만 교환한다")
+    void refresh_doesNotCallBeforeCommitWithoutNewToken() {
+        UserSsoSession session = liveSession();
+        ReflectionTestUtils.setField(session, "lastUsedAt", nowUtc().minusSeconds(1));
+        givenSession(session);
+        List<String> seen = new java.util.ArrayList<>();
+
+        assertThat(sut.refresh(SESSION_ID, seen::add).renewed()).isTrue();
+
+        assertThat(seen).isEmpty();
     }
 
     // ── revoke ──────────────────────────────────────────────────────────
