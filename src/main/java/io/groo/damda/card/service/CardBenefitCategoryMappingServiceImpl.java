@@ -47,6 +47,12 @@ public class CardBenefitCategoryMappingServiceImpl implements CardBenefitCategor
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_NOT_FOUND));
         ExpenseCategory expenseCategory = expenseCategoryRepository.findById(command.expenseCategoryRowId())
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.EXPENSE_CATEGORY_NOT_FOUND));
+        // 남의 카테고리 번호로 매핑하면 응답(expenseCategoryName)으로 그 이름이 읽힌다(보안 점검 DAM-7).
+        if (!expenseCategory.getUser().getRowId().equals(command.userRowId())) {
+            log.warn("카드 혜택 매핑 카테고리 소유권 검증 실패: categoryId={}, ownerRowId={}, requestUserRowId={}",
+                expenseCategory.getRowId(), expenseCategory.getUser().getRowId(), command.userRowId());
+            throw new ForbiddenException(DeskErrorCode.CARD_BENEFIT_MAPPING_ACCESS_DENIED);
+        }
 
         // 기존 사용자 커스텀 있으면 update, 없으면 create
         CardBenefitCategoryMapping existing = mappingRepository

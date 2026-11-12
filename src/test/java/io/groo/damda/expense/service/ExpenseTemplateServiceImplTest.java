@@ -212,6 +212,18 @@ class ExpenseTemplateServiceImplTest {
     }
 
     @Test
+    @DisplayName("updateTemplate — 남의 카테고리로 바꿀 수 없다(응답으로 남의 카테고리 이름이 새던 자리, 보안 점검 DAM-7)")
+    void updateRejectsOthersCategory() {
+        ExpenseTemplate template = mock(ExpenseTemplate.class);
+        given(template.getUser()).willReturn(user(USER_ID));
+        given(expenseTemplateRepository.findById(5L)).willReturn(Optional.of(template));
+        given(expenseCategoryRepository.findById(40L)).willReturn(Optional.of(category(40L, user(999L))));
+
+        assertThatThrownBy(() -> sut.updateTemplate(5L, USER_ID, updateCmd(40L)))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
     @DisplayName("updateTemplate — 남의 템플릿은 수정 불가")
     void updateRejectsOthersTemplate() {
         ExpenseTemplate template = mock(ExpenseTemplate.class);

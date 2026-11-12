@@ -112,6 +112,20 @@ class CardBenefitCategoryMappingServiceImplTest {
     class UpsertMapping {
 
         @Test
+        @DisplayName("남의 카테고리 번호로는 매핑할 수 없다 — 응답으로 남의 카테고리 이름이 새던 자리(보안 점검 DAM-7)")
+        void rejectsOthersCategory() {
+            given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+            ExpenseCategory others = ExpenseCategory.createCategory(user(999L), "남의 비상금", "x", "#000", ExpenseType.EXPENSE, null);
+            ReflectionTestUtils.setField(others, "rowId", 77L);
+            given(expenseCategoryRepository.findById(77L)).willReturn(Optional.of(others));
+
+            assertThatThrownBy(() -> sut.upsertMapping(
+                    new CardBenefitCategoryMappingServiceDto.CreateCommand(USER_ID, "DINING", 77L)))
+                    .isInstanceOf(ForbiddenException.class);
+            verify(mappingRepository, never()).save(any());
+        }
+
+        @Test
         @DisplayName("기존 커스텀 매핑이 없으면 새로 생성하고 저장한다")
         void createsWhenNoExisting() {
             User u = user(USER_ID);
