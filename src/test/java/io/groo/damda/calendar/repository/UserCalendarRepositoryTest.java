@@ -103,6 +103,9 @@ class UserCalendarRepositoryTest {
         User user = persistUser("u1");
         UserCalendar cal = persistCalendar(user, "공유 캘린더", 0, true);
         UserCalendar deleted = persistCalendar(user, "지운 공유", 1, false);
+        // 초대 코드는 공유를 켤 때만 생긴다(DAM-4)
+        cal.issueInviteCode();
+        deleted.issueInviteCode();
         deleted.deleteCalendar();
         em.flush();
         String activeCode = cal.getInviteCode();
@@ -112,6 +115,7 @@ class UserCalendarRepositoryTest {
         assertThat(repository.findByInviteCode(activeCode)).isPresent();
         assertThat(repository.findByInviteCode(deletedCode)).isEmpty();     // soft-delete 제외
         assertThat(repository.findByInviteCode("NOPE1234")).isEmpty();      // 없는 코드
+        assertThat(activeCode).hasSize(32).matches("[0-9A-F]{32}");        // 128비트 16진수
     }
 
     @Test

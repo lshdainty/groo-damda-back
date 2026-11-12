@@ -1,5 +1,6 @@
 package io.groo.damda.calendar.service;
 
+import io.groo.core.exception.BusinessRuleViolationException;
 import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +35,7 @@ public class UserCalendarServiceImpl implements UserCalendarService {
     private final CalendarEventRepository calendarEventRepository;
     private final UserRepository userRepository;
     private final CalendarMembershipValidator membershipValidator;
+    private final CalendarJoinRateLimiter joinRateLimiter;
 
     @Override
     @Transactional
@@ -168,24 +171,52 @@ public class UserCalendarServiceImpl implements UserCalendarService {
             .toList();
     }
 
+    /**
+     * 공유 켜기·코드 새로 만들기 — 소유자만. 코드가 없던 캘린더는 이때 처음 발급된다(공유를 켠 캘린더에만 코드가 있다).
+     * 이미 있으면 갈아 끼워 옛 코드로는 더 참여할 수 없다.
+     */
     @Override
     @Transactional
     public String regenerateInviteCode(Long calendarId, Long userRowId) {
         membershipValidator.validateOwner(calendarId, userRowId);
         UserCalendar calendar = findCalendarOrThrow(calendarId);
-        String newCode = calendar.regenerateInviteCode();
-        log.info("캘린더 초대코드 재생성 완료: calendarId={}", calendarId);
+        String newCode = calendar.issueInviteCode();
+        log.info("캘린더 초대코드 발급 완료: calendarId={}", calendarId);
         return newCode;
     }
 
+    /** 공유 끄기 — 소유자만. 코드를 지워 새로 참여할 수 없게 한다. 이미 참여한 멤버는 그대로다. */
     @Override
     @Transactional
-    public UserCalendarServiceDto.CalendarInfo joinByInviteCode(Long userRowId, String inviteCode) {
+    public void stopSharing(Long calendarId, Long userRowId) {
+        membershipValidator.validateOwner(calendarId, userRowId);
+        findCalendarOrThrow(calendarId).clearInviteCode();
+        log.info("캘린더 초대코드 해제 완료: calendarId={}", calendarId);
+    }
+
+    /**
+     * 초대 코드로 참여.
+     *
+     * <p>틀린 시도는 사용자·IP 별로 세고, 한도를 넘으면 맞는 코드라도 창이 끝날 때까지 받지 않는다
+     * ({@link CalendarJoinRateLimiter}, 보안 점검 DAM-4). 형식이 틀린 코드는 DB 를 보지 않고 틀린 시도로 센다.
+     */
+    @Override
+    @Transactional
+    public UserCalendarServiceDto.CalendarInfo joinByInviteCode(Long userRowId, String inviteCode, String clientIp) {
+        if (!joinRateLimiter.isAllowed(userRowId, clientIp)) {
+            log.warn("캘린더 참여 시도 한도 초과: userRowId={}, ip={}", userRowId, clientIp);
+            throw new BusinessRuleViolationException(DeskErrorCode.USER_CALENDAR_JOIN_RATE_LIMITED);
+        }
         User user = userRepository.findById(userRowId)
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_NOT_FOUND));
 
-        UserCalendar calendar = userCalendarRepository.findByInviteCode(inviteCode)
-            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_INVITE_INVALID));
+        String normalized = normalizeInviteCode(inviteCode);
+        UserCalendar calendar = (normalized == null ? Optional.<UserCalendar>empty()
+                : userCalendarRepository.findByInviteCode(normalized))
+            .orElseThrow(() -> {
+                joinRateLimiter.recordFailure(userRowId, clientIp);
+                return new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_INVITE_INVALID);
+            });
 
         memberRepository.findByCalendarAndUser(calendar.getRowId(), userRowId)
             .ifPresent(m -> { throw new InvalidValueException(DeskErrorCode.USER_CALENDAR_ALREADY_MEMBER); });
@@ -254,6 +285,16 @@ public class UserCalendarServiceImpl implements UserCalendarService {
     }
 
     // ── helpers ──
+
+    /** 붙여 넣은 값의 공백·하이픈을 걷고 대문자로 — 형식(16진수 32자)이 아니면 null. */
+    static String normalizeInviteCode(String raw) {
+        if (raw == null) return null;
+        String code = raw.replaceAll("[\\s-]", "").toUpperCase(java.util.Locale.ROOT);
+        return INVITE_CODE_FORMAT.matcher(code).matches() ? code : null;
+    }
+
+    private static final java.util.regex.Pattern INVITE_CODE_FORMAT =
+        java.util.regex.Pattern.compile("[0-9A-F]{" + UserCalendar.INVITE_CODE_LENGTH + "}");
 
     private UserCalendar findCalendarOrThrow(Long calendarId) {
         return userCalendarRepository.findById(calendarId)

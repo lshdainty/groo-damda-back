@@ -16,7 +16,8 @@ public interface UserCalendarService {
     // ── 공유 ──
     List<UserCalendarServiceDto.MemberInfo> getMembers(Long calendarId, Long userRowId);
     String regenerateInviteCode(Long calendarId, Long userRowId);
-    UserCalendarServiceDto.CalendarInfo joinByInviteCode(Long userRowId, String inviteCode);
+    void stopSharing(Long calendarId, Long userRowId);
+    UserCalendarServiceDto.CalendarInfo joinByInviteCode(Long userRowId, String inviteCode, String clientIp);
     void removeMember(Long calendarId, Long memberId, Long requestUserRowId);
 
     /**

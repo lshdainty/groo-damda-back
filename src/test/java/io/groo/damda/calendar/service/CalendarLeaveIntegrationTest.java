@@ -69,7 +69,7 @@ class CalendarLeaveIntegrationTest {
                     new UserCalendarServiceDto.CreateCommand(ownerRowId, "같이 보는 일정", "#2c70bf"));
             calendarId = shared.rowId();
             String code = userCalendarService.regenerateInviteCode(calendarId, ownerRowId);
-            userCalendarService.joinByInviteCode(memberRowId, code);
+            userCalendarService.joinByInviteCode(memberRowId, code, "127.0.0.1");
         });
         assertThat(isMember(calendarId, memberRowId)).isTrue();
     }
