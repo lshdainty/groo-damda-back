@@ -71,6 +71,13 @@ pipeline {
                             ).trim()
                         }
                         echo "APP_VERSION = ${env.APP_VERSION}"
+                        // 버전은 아래 셸 명령(docker build · docker run)에 들어간다. dev 는 git describe 결과라
+                        // 태그 이름이 그대로 섞인다 — 태그를 올릴 수 있는 사람이 이름에 셸 문법을 심으면 Jenkins 에서
+                        // 실행된다. 운영 Validate 의 형식 검사처럼 허용 문자만 통과시키고, 셸에는 문자열을 이어 붙이지
+                        // 않고 환경변수(env.APP_VERSION → "$APP_VERSION")로만 넘긴다(보안 점검 SUP-2).
+                        if (!(env.APP_VERSION ==~ /[A-Za-z0-9._-]+/)) {
+                            error "버전 문자열에 허용되지 않는 문자가 있습니다(영문·숫자·. _ - 만 허용): '${env.APP_VERSION}'"
+                        }
                     }
                 }
             }
@@ -89,7 +96,7 @@ pipeline {
                         // 여기서 빼면 그 태그를 다시 배포(롤백)할 때 GitHub Packages 인증이
                         // 깨진다. 새 Dockerfile 은 이 build-arg 를 안 쓰고 경고만 낸다.
                         // 옛 태그를 다시 배포할 일이 없어지면 이 --build-arg 를 지운다.
-                        sh 'docker build --secret id=github_token,env=GH_TOKEN --build-arg GITHUB_ACTOR=$GH_USER --build-arg GITHUB_TOKEN=$GH_TOKEN --build-arg APP_UID=' + APP_UID + ' --build-arg APP_GID=' + APP_GID + ' -t ' + IMAGE_NAME + ':latest -t ' + IMAGE_NAME + ':' + env.APP_VERSION + ' .'
+                        sh 'docker build --secret id=github_token,env=GH_TOKEN --build-arg GITHUB_ACTOR=$GH_USER --build-arg GITHUB_TOKEN=$GH_TOKEN --build-arg APP_UID=' + APP_UID + ' --build-arg APP_GID=' + APP_GID + ' -t ' + IMAGE_NAME + ':latest -t ' + IMAGE_NAME + ':"$APP_VERSION" .'
                     }
                 }
             }
@@ -115,8 +122,8 @@ pipeline {
                         --log-opt max-size=10m --log-opt max-file=3 \
                         -e SPRING_PROFILES_ACTIVE=dev \
                         -e LOKI_URL=${env.LOKI_URL} \
-                        -e APP_VERSION=${env.APP_VERSION} \
-                        ${IMAGE_NAME}:${env.APP_VERSION}
+                        -e APP_VERSION="\$APP_VERSION" \
+                        ${IMAGE_NAME}:"\$APP_VERSION"
 
                     # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
                     docker network connect monitoring-network ${CONTAINER_NAME}-dev || true
@@ -170,8 +177,8 @@ pipeline {
                         --log-opt max-size=10m --log-opt max-file=3 \
                         -e SPRING_PROFILES_ACTIVE=prod \
                         -e LOKI_URL=${env.LOKI_URL} \
-                        -e APP_VERSION=${env.APP_VERSION} \
-                        ${IMAGE_NAME}:${env.APP_VERSION}
+                        -e APP_VERSION="\$APP_VERSION" \
+                        ${IMAGE_NAME}:"\$APP_VERSION"
 
                     # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
                     docker network connect monitoring-network ${CONTAINER_NAME}-prod || true
