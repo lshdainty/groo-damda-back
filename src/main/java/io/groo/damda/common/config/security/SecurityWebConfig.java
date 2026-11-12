@@ -37,13 +37,14 @@ public class SecurityWebConfig {
     /**
      * SSO Redis 이벤트 서명 검증(보안 점검 IEU-6, core 3.4.0) — Redis 에 발행할 수 있는 누구든 위조
      * SESSION_REVOKED_ALL 을 보내 남의 담다 세션을 끊을 수 있었다. 위 공개키로 서명을 확인하고 jti 를 Redis 에
-     * 짧게 기억한다. {@code app.sso-events.require-signature} 가 꺼져 있으면(전환 기간) 서명 없는 이벤트도 경고와 함께 받는다.
+     * 짧게 기억한다. 서명 없는 이벤트는 처리하지 않는다(③, 기본 켜짐). {@code app.sso-events.require-signature=false}
+     * 로 끄면 전환 기간처럼 경고와 함께 받는다 — 되돌릴 때만 쓴다.
      * 구독 배선(RedisSessionEventConfig)은 조건부지만 구독자는 늘 빈이라 검증기는 여기 둔다.
      */
     @Bean
     public SsoEventVerifier ssoEventVerifier(SsoJwksKeyLocator ssoSigningKeyLocator,
                                              StringRedisTemplate stringRedisTemplate,
-                                             @Value("${app.sso-events.require-signature:false}") boolean requireSignature) {
+                                             @Value("${app.sso-events.require-signature:true}") boolean requireSignature) {
         return new SsoEventVerifier(ssoSigningKeyLocator, stringRedisTemplate, requireSignature);
     }
 
