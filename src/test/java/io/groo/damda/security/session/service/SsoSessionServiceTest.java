@@ -70,9 +70,16 @@ class SsoSessionServiceTest {
         return LocalDateTime.now(ZoneOffset.UTC);
     }
 
-    /** 살아 있고 아직 갱신된 적 없는 세션. */
+    /** 살아 있고 아직 갱신된 적 없는 세션 — 하루 전에 로그인했다. */
     private UserSsoSession liveSession() {
-        return UserSsoSession.issue(7L, SESSION_ID, "enc(old-refresh)", nowUtc().plusDays(3), "iPhone");
+        return loggedInAt(UserSsoSession.issue(7L, SESSION_ID, "enc(old-refresh)", nowUtc().plusDays(3), "iPhone"),
+                nowUtc().minusDays(1));
+    }
+
+    /** 로그인 시각(create_at) — 저장 때 auditing 이 채우는 값을 테스트에서 직접 넣는다. */
+    private static UserSsoSession loggedInAt(UserSsoSession session, LocalDateTime loginAt) {
+        org.springframework.test.util.ReflectionTestUtils.setField(session, "createAt", loginAt);
+        return session;
     }
 
     private void givenSession(UserSsoSession session) {
@@ -214,6 +221,44 @@ class SsoSessionServiceTest {
         assertThat(sut.refresh(SESSION_ID).renewed()).isFalse();
         verify(ssoOAuth2Client, never()).refreshTokens(anyString());
         assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("로그인부터 30일이 지나면 쓰는 중이어도 재발급하지 않고 끊는다 — SSO 를 부르지 않는다(보안 점검 DAM-5)")
+    void refresh_pastAbsoluteLifetime_revokesWithoutCallingSso() {
+        // 미끄럼 만료는 아직 남았다(계속 써 왔다) — 그래도 절대 수명이 끝났다.
+        UserSsoSession session = loggedInAt(
+                UserSsoSession.issue(7L, SESSION_ID, "enc(old-refresh)", nowUtc().plusDays(5), "iPhone"),
+                nowUtc().minusDays(30).minusMinutes(1));
+        givenSession(session);
+
+        assertThat(sut.refresh(SESSION_ID).renewed()).isFalse();
+        verify(ssoOAuth2Client, never()).refreshTokens(anyString());
+        assertThat(session.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("로그인 29일째는 그대로 재발급된다 — 절대 수명이 멀쩡한 세션을 끊지 않는다")
+    void refresh_withinAbsoluteLifetime_renews() {
+        UserSsoSession session = loggedInAt(
+                UserSsoSession.issue(7L, SESSION_ID, "enc(old-refresh)", nowUtc().plusDays(5), "iPhone"),
+                nowUtc().minusDays(29));
+        givenSession(session);
+        given(ssoOAuth2Client.refreshTokens("old-refresh"))
+                .willReturn(new SsoOAuth2Client.TokenPair("new-access", "new-refresh"));
+
+        assertThat(sut.refresh(SESSION_ID).renewed()).isTrue();
+        // 재발급해도 로그인 시각은 그대로다 — 무음 재인증으로 절대 수명이 늘어나지 않는다.
+        assertThat(session.getCreateAt()).isBefore(nowUtc().minusDays(28));
+    }
+
+    @Test
+    @DisplayName("로그인 시각을 모르는 세션은 재발급하지 않는다 — 근거 없이 늘리지 않는다")
+    void refresh_unknownLoginTime_refuses() {
+        givenSession(UserSsoSession.issue(7L, SESSION_ID, "enc(old-refresh)", nowUtc().plusDays(5), "iPhone"));
+
+        assertThat(sut.refresh(SESSION_ID).renewed()).isFalse();
+        verify(ssoOAuth2Client, never()).refreshTokens(anyString());
     }
 
     @Test

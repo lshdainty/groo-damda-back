@@ -68,8 +68,11 @@ class SsoSessionServiceRevocationTest {
         return LocalDateTime.now(ZoneOffset.UTC);
     }
 
+    /** 하루 전에 로그인한 살아 있는 세션 — 로그인 시각(create_at)은 저장 때 auditing 이 채우는 값이다. */
     private static UserSsoSession session(Long userRowId, String sessionId) {
-        return UserSsoSession.issue(userRowId, sessionId, "enc", nowUtc().plusDays(3), "iPhone · Safari");
+        UserSsoSession s = UserSsoSession.issue(userRowId, sessionId, "enc", nowUtc().plusDays(3), "iPhone · Safari");
+        org.springframework.test.util.ReflectionTestUtils.setField(s, "createAt", nowUtc().minusDays(1));
+        return s;
     }
 
     private void givenStoredSession(UserSsoSession session) {

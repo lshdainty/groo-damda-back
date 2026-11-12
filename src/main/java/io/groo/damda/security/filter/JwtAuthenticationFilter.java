@@ -96,12 +96,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     if (!claims.isEmbed()) {
                         long remainingMs = jwtTokenProvider.getRemainingExpiration(token);
                         if (remainingMs > 0 && remainingMs < RENEWAL_THRESHOLD_MS) {
-                            String newToken = jwtTokenProvider.createAccessToken(
-                                claims.userId(), claims.userName(),
-                                claims.userEmail(), claims.userRowId(), claims.sessionId()
-                            );
-                            renewAccessTokenCookie(response, newToken);
-                            log.debug("Token renewed for user: {}", claims.userId());
+                            tryRenew(claims, response);
                         }
                     }
                 }
@@ -111,6 +106,36 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * 만료 직전 갱신 — <b>무음 재인증과 같은 경로</b>(세션 행 → SSO refresh)를 탄다.
+     *
+     * <p>종전엔 세션을 보지 않고 claims 만으로 재서명했다. 그래서 훔친 쿠키로 만료 직전에 한 번씩만
+     * 요청하면 같은 세션으로 끝없이 다시 발급됐고, 7일 뒤 세션 행이 만료돼 "로그인된 기기" 목록에서
+     * 사라진 뒤에도 계속 돌았다(보안 점검 DAM-5). 이제 세션 행이 살아 있고 미끄럼·절대 수명(30일)
+     * 안이어야 새 토큰이 나온다. SSO 를 함께 불러 계정·권한 회수도 매 갱신마다 다시 확인된다.
+     *
+     * <p>안 되면 아무것도 하지 않는다 — 지금 토큰은 남은 몇 분 동안 그대로 쓰이고, 만료되면 무음 재인증이
+     * 한 번 더 시도한 뒤 401 로 로그인에 보낸다. 세션에 속하지 않는 옛 토큰은 갱신하지 않는다.
+     */
+    private void tryRenew(JwtClaimsPrincipal claims, HttpServletResponse response) {
+        if (!claims.hasSession()) {
+            return;
+        }
+        String newToken;
+        try {
+            newToken = tokenExchangeServiceProvider.getObject().reauthenticate(claims);
+        } catch (Exception e) {
+            log.error("만료 전 갱신 실패. userId={}, err={}", claims.userId(), e.getMessage());
+            return;
+        }
+        if (newToken == null) {
+            return;
+        }
+        authenticate(jwtTokenProvider.validateAndGetClaims(newToken));
+        renewAccessTokenCookie(response, newToken);
+        log.debug("Token renewed for user: {}", claims.userId());
     }
 
     /**

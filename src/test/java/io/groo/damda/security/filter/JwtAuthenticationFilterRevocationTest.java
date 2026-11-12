@@ -147,11 +147,37 @@ class JwtAuthenticationFilterRevocationTest {
     @DisplayName("폐기 안 된 세션은 임계값 아래에서 여전히 갱신된다 — 갱신 자체를 죽이지 않았다")
     void liveSession_stillRenewsCookie() throws Exception {
         given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
+        given(tokenExchangeService.reauthenticate(any())).willReturn(
+                jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID));
 
         MockHttpServletResponse response = run(almostExpiredToken(SESSION_ID));
 
         assertThat(response.getHeader(HttpHeaders.SET_COOKIE))
                 .contains(TokenExchangeController.ACCESS_TOKEN_COOKIE);
+    }
+
+    @Test
+    @DisplayName("만료 전 갱신도 세션을 거친다 — 세션이 죽었거나 절대 수명이 지나 재발급이 거절되면 쿠키를 갱신하지 않는다(보안 점검 DAM-5)")
+    void renewalGoesThroughSession_refusedMeansNoCookie() throws Exception {
+        given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
+        given(tokenExchangeService.reauthenticate(any())).willReturn(null);
+
+        MockHttpServletResponse response = run(almostExpiredToken(SESSION_ID));
+
+        // 종전엔 claims 만으로 재서명해 세션이 없어도 쿠키가 새로 나갔다.
+        assertThat(response.getHeader(HttpHeaders.SET_COOKIE)).isNull();
+        // 남은 몇 분은 지금 토큰으로 그대로 인증된다 — 갱신 실패가 이 요청을 막지는 않는다.
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(tokenExchangeService).reauthenticate(any());
+    }
+
+    @Test
+    @DisplayName("세션 없는 옛 토큰은 만료 전에도 갱신하지 않는다 — 확인할 세션이 없으면 늘려 줄 근거도 없다(보안 점검 DAM-5)")
+    void legacyTokenWithoutSession_isNotRenewed() throws Exception {
+        MockHttpServletResponse response = run(almostExpiredToken(null));
+
+        assertThat(response.getHeader(HttpHeaders.SET_COOKIE)).isNull();
+        verify(tokenExchangeService, never()).reauthenticate(any());
     }
 
     @Test
