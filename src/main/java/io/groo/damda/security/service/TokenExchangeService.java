@@ -57,7 +57,10 @@ public class TokenExchangeService {
      * <p>재발급이 되지 않으면 {@code null}. 그러면 요청은 인증 없이 흘러가 401 이 되고,
      * 클라이언트가 로그인 화면으로 보낸다.
      *
-     * @param expired 서명은 검증됐고 만료만 된 토큰의 claims
+     * <p>만료 직전 갱신도 이 경로를 탄다(보안 점검 DAM-5) — 세션 행·미끄럼 수명·절대 수명(30일)을
+     * {@link SsoSessionService#refresh} 가 한 자리에서 본다.
+     *
+     * @param expired 서명이 검증된 토큰의 claims(만료됐거나 만료 직전)
      */
     @Transactional
     public String reauthenticate(JwtClaimsPrincipal expired) {

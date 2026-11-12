@@ -106,6 +106,17 @@ public class UserSsoSession extends AuditingFieldsWithIp {
         return isDeleted == YNType.N;
     }
 
+    /**
+     * 로그인부터 절대 수명이 지났는가. 로그인 시각은 이 행의 {@code create_at}[UTC] — 로그인 때 한 번 쓰고
+     * 재발급(rotate)으로는 바뀌지 않는다. 그래서 무음 재인증을 아무리 이어도 이 시각은 그대로다.
+     *
+     * <p>시각을 모르면(저장 전 행) 지난 것으로 본다 — 근거 없이 연장하지 않는다.
+     */
+    public boolean isPastAbsoluteLifetime(LocalDateTime now, long lifetimeSeconds) {
+        LocalDateTime loginAt = getCreateAt();
+        return loginAt == null || !loginAt.plusSeconds(lifetimeSeconds).isAfter(now);
+    }
+
     /** 만료된 세션으로는 SSO 를 부르지 않는다 — 어차피 거부당한다. */
     public boolean isExpired(LocalDateTime now) {
         return expiresAt.isBefore(now);

@@ -108,6 +108,14 @@ public class SsoSessionService {
             return RefreshResult.failed();
         }
 
+        // 절대 수명 — 로그인부터 30일. 미끄럼 수명과 달리 쓰는 동안에도 늘어나지 않는다(보안 점검 DAM-5).
+        // SSO 를 부르기 전에 끊는다 — 앱의 무음 재인증(refresh grant)도 이 자리를 지나므로 우회되지 않는다.
+        if (session.isPastAbsoluteLifetime(now, jwtProperties.getAbsoluteSessionLifetime() / 1000)) {
+            log.info("세션 절대 수명 경과 — 재로그인 필요. sessionId={}", sessionId);
+            kill(session);
+            return RefreshResult.failed();
+        }
+
         // 락을 잡고 보니 앞선 요청이 이미 갱신해 뒀다. 또 부르면 방금 받은 토큰이 폐기된다.
         if (session.refreshedWithin(now, REFRESH_GRACE_SECONDS)) {
             return RefreshResult.reusedExisting();

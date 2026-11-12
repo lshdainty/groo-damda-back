@@ -116,6 +116,8 @@ jwt:
   # 세션 수명 — access 가 만료돼도 이 기간 안이면 조용히 재발급된다. SSO refresh 수명(7일)과 맞춘다.
   # access token 쿠키의 maxAge 도 이 값을 쓴다(쿠키가 먼저 사라지면 재발급할 세션을 못 찾는다).
   session-expiration: ${JWT_SESSION_EXPIRATION:604800000}
+  # 세션 절대 수명 — 로그인부터 30일이 지나면 사용 중이어도 재발급을 거절해 다시 로그인하게 한다(보안 점검 DAM-5).
+  absolute-session-lifetime: ${JWT_ABSOLUTE_SESSION_LIFETIME:2592000000}
   # SSO RS256 토큰 검증용 JWKS (기본값은 SSO_API_URL 에서 파생)
   sso-jwks-uri: ${SSO_JWKS_URI:${SSO_API_URL}/.well-known/jwks.json}
 
