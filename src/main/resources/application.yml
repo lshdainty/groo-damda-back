@@ -123,10 +123,10 @@ jwt:
 
 # 어플리케이션 정보
 app:
-  # SSO Redis 이벤트 서명 강제(보안 점검 IEU-6). 전환 기간엔 false — 서명 없는 이벤트도 경고와 함께 받는다.
-  # sso-back 이 서명해서 발행하기 시작한 뒤 true 로 바꾼다
+  # SSO Redis 이벤트 서명 강제(보안 점검 IEU-6 ③). 서명 없는 이벤트는 처리하지 않는다.
+  # sso-back 이 서명해서 발행(②)한 뒤에 배포한다. 되돌려야 하면 env 로 false(전환 기간 동작)
   sso-events:
-    require-signature: ${SSO_EVENTS_REQUIRE_SIGNATURE:false}
+    require-signature: ${SSO_EVENTS_REQUIRE_SIGNATURE:true}
   sso:
     base-url: ${SSO_API_URL}
     # client_credentials 그랜트용 desk 클라이언트 시크릿 (desk→SSO 서비스 토큰 발급)
