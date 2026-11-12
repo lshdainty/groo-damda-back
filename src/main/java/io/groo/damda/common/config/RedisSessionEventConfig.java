@@ -1,5 +1,6 @@
 package io.groo.damda.common.config;
 
+import io.groo.core.security.event.SsoEventSignature;
 import io.groo.damda.common.event.SsoSessionEventSubscriber;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -24,7 +25,7 @@ import org.springframework.data.redis.listener.adapter.MessageListenerAdapter;
 @ConditionalOnProperty(name = "app.session-events.enabled", havingValue = "true", matchIfMissing = true)
 public class RedisSessionEventConfig {
 
-    private static final String SESSION_EVENT_CHANNEL = "porest:sso:session-events";
+    private static final String SESSION_EVENT_CHANNEL = SsoEventSignature.SESSION_EVENTS_CHANNEL;
 
     @Bean
     public ChannelTopic sessionEventTopic() {
