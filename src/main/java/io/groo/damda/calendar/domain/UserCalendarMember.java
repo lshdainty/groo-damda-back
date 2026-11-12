@@ -51,6 +51,16 @@ public class UserCalendarMember extends AuditingFieldsWithIp {
     @Column(name = "joined_at", nullable = false)
     private LocalDateTime joinedAt;
 
+    /**
+     * 내 화면에 이 캘린더를 보이는가 — <b>멤버마다 따로</b> 갖는 값.
+     *
+     * <p>종전엔 캘린더 하나에 한 값({@code user_calendar.is_visible})이라 누가 끄면 모두의 화면에서 숨겨졌고,
+     * 그래서 읽기 전용 멤버가 소유자 화면을 바꿀 수 있었다(보안 점검 DAM-8). 이제 각자 자기 화면만 바꾼다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "is_visible", nullable = false, length = 1)
+    private YNType isVisible;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "is_deleted", nullable = false, length = 1)
     private YNType isDeleted;
@@ -61,12 +71,18 @@ public class UserCalendarMember extends AuditingFieldsWithIp {
         member.user = user;
         member.permission = permission;
         member.joinedAt = LocalDateTime.now();
+        member.isVisible = YNType.Y;
         member.isDeleted = YNType.N;
         return member;
     }
 
     public void changePermission(CalendarRole permission) {
         this.permission = permission;
+    }
+
+    /** 내 화면에서 보이기/숨기기 — 다른 멤버 화면은 그대로다. */
+    public void toggleVisibility() {
+        this.isVisible = this.isVisible == YNType.N ? YNType.Y : YNType.N;
     }
 
     public void removeMember() {

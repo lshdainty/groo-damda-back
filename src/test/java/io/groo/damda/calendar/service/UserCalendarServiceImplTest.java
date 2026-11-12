@@ -76,9 +76,11 @@ class UserCalendarServiceImplTest {
     @DisplayName("toggleVisibility — 기본 캘린더는 숨길 수 없다(전용 코드 · 400 · 값 그대로)")
     void toggleRejectsDefaultCalendar() {
         UserCalendar calendar = calendar(true);
+        UserCalendarMember me = UserCalendarMember.create(calendar, user(USER_ID), CalendarRole.OWNER);
         given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(me));
 
-        assertThatThrownBy(() -> sut.toggleVisibility(CAL_ID, USER_ID))
+        assertThatThrownBy(() -> realValidator().toggleVisibility(CAL_ID, USER_ID))
                 .isInstanceOf(InvalidValueException.class)
                 .extracting(e -> ((InvalidValueException) e).getErrorCode())
                 // 삭제 거절을 재사용하지 않는다 — "삭제할 수 없어요" 로는 무엇을 하다 막혔는지 알 수 없다.
@@ -90,51 +92,65 @@ class UserCalendarServiceImplTest {
         assertThat(DeskErrorCode.USER_CALENDAR_DEFAULT_HIDE.getCode())
                 .isNotEqualTo(DeskErrorCode.USER_CALENDAR_DEFAULT_DELETE.getCode());
         // 막았는데 값이 뒤집혀 있으면 저장 시점에 그대로 숨겨진다 — 거절 뒤 상태까지 확인한다.
-        assertThat(calendar.getIsVisible()).isEqualTo(YNType.Y);
+        assertThat(me.getIsVisible()).isEqualTo(YNType.Y);
+    }
+
+    /** 실제 권한 판정을 태우는 서비스 — 멤버 조회는 mock 저장소에서 온다. */
+    private UserCalendarServiceImpl realValidator() {
+        return new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
+                calendarEventRepository, userRepository,
+                new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
     }
 
     @Test
-    @DisplayName("toggleVisibility — 일반 캘린더는 종전대로 숨김·표시를 왕복한다")
+    @DisplayName("toggleVisibility — 일반 캘린더는 내 멤버 행에서 숨김·표시를 왕복한다")
     void toggleFlipsNonDefaultCalendar() {
         UserCalendar calendar = calendar(false);
+        UserCalendarMember me = UserCalendarMember.create(calendar, user(USER_ID), CalendarRole.OWNER);
         given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(me));
+        UserCalendarServiceImpl sut = realValidator();
 
         assertThat(sut.toggleVisibility(CAL_ID, USER_ID).isVisible()).isFalse();
-        assertThat(calendar.getIsVisible()).isEqualTo(YNType.N);
+        assertThat(me.getIsVisible()).isEqualTo(YNType.N);
 
         assertThat(sut.toggleVisibility(CAL_ID, USER_ID).isVisible()).isTrue();
-        assertThat(calendar.getIsVisible()).isEqualTo(YNType.Y);
+        assertThat(me.getIsVisible()).isEqualTo(YNType.Y);
     }
 
     @Test
-    @DisplayName("toggleVisibility — 읽기 전용 멤버는 바꿀 수 없다(한 값을 모두가 같이 쓰므로 소유자 화면에서도 숨겨지던 자리, 보안 점검 DAM-8)")
-    void toggleRejectsReadOnlyMember() {
+    @DisplayName("toggleVisibility — 읽기 전용 멤버도 자기 화면만 바꾼다. 소유자 화면(멤버 행)은 그대로다(보안 점검 DAM-8)")
+    void readOnlyMemberTogglesOnlyOwnView() {
         UserCalendar calendar = calendar(false);
+        ReflectionTestUtils.setField(calendar, "rowId", CAL_ID);
+        UserCalendarMember owner = UserCalendarMember.create(calendar, user(USER_ID), CalendarRole.OWNER);
         UserCalendarMember readOnly = UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.READ);
         given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
         given(memberRepository.findByCalendarAndUser(CAL_ID, MEMBER_ID)).willReturn(Optional.of(readOnly));
-        // 실제 권한 판정을 태운다 — 서비스가 어느 검증을 부르는지가 요점이다.
-        UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
-                calendarEventRepository, userRepository,
-                new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, readOnly));
+        given(membershipValidator.getAccessibleCalendarIds(USER_ID)).willReturn(java.util.List.of(CAL_ID));
+        given(userCalendarRepository.findAllByIds(java.util.List.of(CAL_ID))).willReturn(java.util.List.of(calendar));
+        UserCalendarServiceImpl real = realValidator();
 
-        assertThatThrownBy(() -> real.toggleVisibility(CAL_ID, MEMBER_ID))
-                .isInstanceOf(ForbiddenException.class);
-        assertThat(calendar.getIsVisible()).isEqualTo(YNType.Y);
+        assertThat(real.toggleVisibility(CAL_ID, MEMBER_ID).isVisible()).isFalse();
+
+        assertThat(readOnly.getIsVisible()).isEqualTo(YNType.N);
+        assertThat(owner.getIsVisible()).isEqualTo(YNType.Y);
+        // 소유자가 받는 목록에서는 여전히 보인다
+        assertThat(sut.getCalendars(USER_ID)).singleElement()
+                .extracting(UserCalendarServiceDto.CalendarInfo::isVisible).isEqualTo(true);
     }
 
     @Test
-    @DisplayName("toggleVisibility — 편집 멤버는 종전대로 바꿀 수 있다")
-    void toggleAllowsEditMember() {
+    @DisplayName("toggleVisibility — 멤버가 아니면 바꿀 수 없다")
+    void nonMemberCannotToggle() {
         UserCalendar calendar = calendar(false);
-        UserCalendarMember editor = UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.EDIT);
         given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
-        given(memberRepository.findByCalendarAndUser(CAL_ID, MEMBER_ID)).willReturn(Optional.of(editor));
-        UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
-                calendarEventRepository, userRepository,
-                new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, 999L)).willReturn(Optional.empty());
 
-        assertThat(real.toggleVisibility(CAL_ID, MEMBER_ID).isVisible()).isFalse();
+        assertThatThrownBy(() -> realValidator().toggleVisibility(CAL_ID, 999L))
+                .isInstanceOf(ForbiddenException.class);
     }
 
     @Test
@@ -143,9 +159,13 @@ class UserCalendarServiceImplTest {
         UserCalendar calendar = calendar(false);
         String code = calendar.issueInviteCode();
 
-        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.OWNER, 3).inviteCode()).isEqualTo(code);
-        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.EDIT, 3).inviteCode()).isNull();
-        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.READ, 3).inviteCode()).isNull();
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar,
+                UserCalendarMember.create(calendar, user(USER_ID), CalendarRole.OWNER), 3).inviteCode()).isEqualTo(code);
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar,
+                UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.EDIT), 3).inviteCode()).isNull();
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar,
+                UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.READ), 3).inviteCode()).isNull();
+        assertThat(UserCalendarServiceDto.CalendarInfo.from(calendar, null, 3).inviteCode()).isNull();
     }
 
     @Test

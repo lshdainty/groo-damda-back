@@ -54,6 +54,10 @@ public class UserCalendar extends AuditingFieldsWithIp {
     @Column(name = "is_default", nullable = false, length = 1)
     private YNType isDefault;
 
+    /**
+     * 옛 캘린더 단위 표시 값 — <b>더 이상 읽거나 쓰지 않는다.</b> 표시 여부는 멤버마다
+     * {@code UserCalendarMember.isVisible} 에 있다(보안 점검 DAM-8). 칸은 마이그레이션의 원본이라 남겨 둔다.
+     */
     @Enumerated(EnumType.STRING)
     @Column(name = "is_visible", nullable = false, length = 1)
     private YNType isVisible;
@@ -92,10 +96,6 @@ public class UserCalendar extends AuditingFieldsWithIp {
         if (color != null) {
             this.color = color;
         }
-    }
-
-    public void toggleVisibility() {
-        this.isVisible = this.isVisible == YNType.Y ? YNType.N : YNType.Y;
     }
 
     /** 공유를 켠다 — 새 초대 코드를 발급한다. 이미 있으면 갈아 끼워 옛 코드는 더 이상 쓸 수 없다. */
