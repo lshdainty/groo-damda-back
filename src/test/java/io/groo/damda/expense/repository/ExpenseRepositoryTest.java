@@ -3,9 +3,15 @@ package io.groo.damda.expense.repository;
 import io.groo.damda.common.config.QueryDslConfig;
 import io.groo.damda.common.config.database.JpaAuditingConfig;
 import io.groo.damda.common.config.database.LoginUserAuditorAware;
+import io.groo.core.type.YNType;
+import io.groo.damda.calendar.domain.CalendarEvent;
+import io.groo.damda.calendar.type.CalendarEventType;
 import io.groo.damda.expense.domain.Expense;
 import io.groo.damda.expense.domain.ExpenseCategory;
 import io.groo.damda.expense.type.ExpenseType;
+import io.groo.damda.todo.domain.Todo;
+import io.groo.damda.todo.type.TodoPriority;
+import io.groo.damda.todo.type.TodoType;
 import io.groo.damda.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -181,5 +187,44 @@ class ExpenseRepositoryTest {
         assertThat(result).hasSize(2);
         assertThat(result).extracting(Expense::getDescription)
                 .containsExactlyInAnyOrder("start경계", "end경계");
+    }
+
+    @Test
+    @DisplayName("findByTodo — 같은 할일에 붙은 지출이라도 요청한 사용자 것만 (보안 점검 DAM-1)")
+    void findByTodoOnlyOwn() {
+        User me = persistUser();
+        User other = em.persist(User.createUser(null, "u2", "남", "u2@porest.com"));
+        Todo todo = em.persist(Todo.createTodo(me, "장보기", null, TodoPriority.MEDIUM, null, null, TodoType.TASK));
+        Expense mine = persistExpense(me, persistCategory(me, "식비", null), 10_000L);
+        Expense theirs = persistExpense(other, persistCategory(other, "식비", null), 99_000L);
+        mine.setTodo(todo);
+        theirs.setTodo(todo);
+        em.flush();
+        em.clear();
+
+        assertThat(repository.findByTodo(me.getRowId(), todo.getRowId()))
+                .extracting(Expense::getRowId).containsExactly(mine.getRowId());
+        assertThat(repository.findByTodo(other.getRowId(), todo.getRowId()))
+                .extracting(Expense::getRowId).containsExactly(theirs.getRowId());
+    }
+
+    @Test
+    @DisplayName("findByCalendarEvent — 같은 일정에 붙은 지출이라도 요청한 사용자 것만 (보안 점검 DAM-1)")
+    void findByCalendarEventOnlyOwn() {
+        User me = persistUser();
+        User other = em.persist(User.createUser(null, "u2", "남", "u2@porest.com"));
+        CalendarEvent event = em.persist(CalendarEvent.createEvent(me, "회식", null, CalendarEventType.PERSONAL, null,
+                LocalDateTime.of(2026, 6, 15, 19, 0), LocalDateTime.of(2026, 6, 15, 21, 0),
+                YNType.N, null, null, null, null));
+        Expense mine = persistExpense(me, persistCategory(me, "식비", null), 10_000L);
+        Expense theirs = persistExpense(other, persistCategory(other, "식비", null), 99_000L);
+        mine.setCalendarEvent(event);
+        theirs.setCalendarEvent(event);
+        em.flush();
+        em.clear();
+
+        assertThat(repository.findByCalendarEvent(me.getRowId(), event.getRowId()))
+                .extracting(Expense::getRowId).containsExactly(mine.getRowId());
+        assertThat(repository.findByCalendarEvent(999_999L, event.getRowId())).isEmpty();
     }
 }

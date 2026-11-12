@@ -15,6 +15,7 @@ import io.groo.damda.card.service.dto.CardPaymentServiceDto;
 import io.groo.damda.asset.service.AssetService;
 import io.groo.damda.calendar.domain.CalendarEvent;
 import io.groo.damda.calendar.repository.CalendarEventRepository;
+import io.groo.damda.calendar.service.CalendarMembershipValidator;
 import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.damda.expense.domain.Expense;
 import io.groo.damda.expense.domain.ExpenseAggregates;
@@ -78,6 +79,7 @@ public class ExpenseServiceImpl implements ExpenseService {
     private final AssetRepository assetRepository;
     private final AssetBalanceHistoryService balanceHistoryService;
     private final CalendarEventRepository calendarEventRepository;
+    private final CalendarMembershipValidator calendarMembershipValidator;
     private final TodoRepository todoRepository;
     private final UserRepository userRepository;
     private final CardPaymentService cardPaymentService;
@@ -186,15 +188,11 @@ public class ExpenseServiceImpl implements ExpenseService {
         expense.markFixed(command.isFixed());
 
         if (command.calendarEventRowId() != null) {
-            CalendarEvent event = calendarEventRepository.findById(command.calendarEventRowId())
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.CALENDAR_EVENT_NOT_FOUND));
-            expense.setCalendarEvent(event);
+            expense.setCalendarEvent(findLinkableEvent(command.calendarEventRowId(), command.userRowId()));
         }
 
         if (command.todoRowId() != null) {
-            Todo todo = todoRepository.findById(command.todoRowId())
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.TODO_NOT_FOUND));
-            expense.setTodo(todo);
+            expense.setTodo(findLinkableTodo(command.todoRowId(), command.userRowId()));
         }
 
         expenseRepository.save(expense);
@@ -389,13 +387,11 @@ public class ExpenseServiceImpl implements ExpenseService {
 
         // 일정·할 일 연결은 <b>실렸을 때만</b> 손댄다 — 안 보낸 요청이 붙여 둔 연결을 끊으면 안 된다.
         expense.setCalendarEvent(command.calendarEventRowId()
-            .map(rowId -> calendarEventRepository.findById(rowId)
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.CALENDAR_EVENT_NOT_FOUND)))
+            .map(rowId -> findLinkableEvent(rowId, userRowId))
             .orKeep(expense.getCalendarEvent()));
 
         expense.setTodo(command.todoRowId()
-            .map(rowId -> todoRepository.findById(rowId)
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.TODO_NOT_FOUND)))
+            .map(rowId -> findLinkableTodo(rowId, userRowId))
             .orKeep(expense.getTodo()));
 
         // 분할 합 일치화: 분할이 있는 거래는 거래 금액과 분할 합이 항상 같아야 한다.
@@ -474,12 +470,10 @@ public class ExpenseServiceImpl implements ExpenseService {
             command.merchant().orKeep(expense.getMerchant()));
         expense.markFixed(command.isFixed().orKeep(expense.isFixedTx()));
         expense.setCalendarEvent(command.calendarEventRowId()
-            .map(rowId -> calendarEventRepository.findById(rowId)
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.CALENDAR_EVENT_NOT_FOUND)))
+            .map(rowId -> findLinkableEvent(rowId, userRowId))
             .orKeep(expense.getCalendarEvent()));
         expense.setTodo(command.todoRowId()
-            .map(rowId -> todoRepository.findById(rowId)
-                .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.TODO_NOT_FOUND)))
+            .map(rowId -> findLinkableTodo(rowId, userRowId))
             .orKeep(expense.getTodo()));
         if (command.splits() != null) {
             expenseSplitService.replaceSplits(new ExpenseSplitServiceDto.ReplaceCommand(
@@ -1347,21 +1341,21 @@ public class ExpenseServiceImpl implements ExpenseService {
     }
 
     @Override
-    public List<ExpenseServiceDto.ExpenseInfo> getExpensesByCalendarEvent(Long calendarEventRowId) {
-        log.debug("일정 연결 지출 조회: calendarEventRowId={}", calendarEventRowId);
+    public List<ExpenseServiceDto.ExpenseInfo> getExpensesByCalendarEvent(Long userRowId, Long calendarEventRowId) {
+        log.debug("일정 연결 지출 조회: userRowId={}, calendarEventRowId={}", userRowId, calendarEventRowId);
 
         Predicate<Expense> locked = moneyLockJudge();
-        return expenseRepository.findByCalendarEvent(calendarEventRowId).stream()
+        return expenseRepository.findByCalendarEvent(userRowId, calendarEventRowId).stream()
             .map(e -> ExpenseServiceDto.ExpenseInfo.from(e).withLock(e, locked.test(e)))
             .toList();
     }
 
     @Override
-    public List<ExpenseServiceDto.ExpenseInfo> getExpensesByTodo(Long todoRowId) {
-        log.debug("할일 연결 지출 조회: todoRowId={}", todoRowId);
+    public List<ExpenseServiceDto.ExpenseInfo> getExpensesByTodo(Long userRowId, Long todoRowId) {
+        log.debug("할일 연결 지출 조회: userRowId={}, todoRowId={}", userRowId, todoRowId);
 
         Predicate<Expense> locked = moneyLockJudge();
-        return expenseRepository.findByTodo(todoRowId).stream()
+        return expenseRepository.findByTodo(userRowId, todoRowId).stream()
             .map(e -> ExpenseServiceDto.ExpenseInfo.from(e).withLock(e, locked.test(e)))
             .toList();
     }
@@ -1404,6 +1398,40 @@ public class ExpenseServiceImpl implements ExpenseService {
                 category.getRowId(), category.getUser().getRowId(), userRowId);
             throw new ForbiddenException(DeskErrorCode.EXPENSE_ACCESS_DENIED);
         }
+    }
+
+    /**
+     * 지출에 붙일 일정 — 내가 볼 수 있는 일정만(보안 점검 DAM-1).
+     * 캘린더 소속이면 그 캘린더의 멤버여야 하고(읽기 전용 멤버도 자기 지출을 붙일 수는 있다),
+     * 캘린더 없는 옛 일정은 만든 사람만. 종전에는 번호만 맞으면 남의 일정에도 붙었다.
+     */
+    private CalendarEvent findLinkableEvent(Long eventRowId, Long userRowId) {
+        CalendarEvent event = calendarEventRepository.findById(eventRowId)
+            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.CALENDAR_EVENT_NOT_FOUND));
+        if (event.getCalendar() != null) {
+            calendarMembershipValidator.validateMembership(event.getCalendar().getRowId(), userRowId);
+            return event;
+        }
+        Long ownerRowId = event.getUser() != null ? event.getUser().getRowId() : null;
+        if (!userRowId.equals(ownerRowId)) {
+            log.warn("지출-일정 연결 거부 - eventId={}, ownerRowId={}, requestUserRowId={}",
+                eventRowId, ownerRowId, userRowId);
+            throw new ForbiddenException(DeskErrorCode.CALENDAR_EVENT_ACCESS_DENIED);
+        }
+        return event;
+    }
+
+    /** 지출에 붙일 할일 — 내 할일이거나 내게 맡겨진 할일만(보안 점검 DAM-1). */
+    private Todo findLinkableTodo(Long todoRowId, Long userRowId) {
+        Todo todo = todoRepository.findById(todoRowId)
+            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.TODO_NOT_FOUND));
+        boolean owner = todo.getUser() != null && userRowId.equals(todo.getUser().getRowId());
+        boolean assignee = todo.getAssignee() != null && userRowId.equals(todo.getAssignee().getRowId());
+        if (!owner && !assignee) {
+            log.warn("지출-할일 연결 거부 - todoId={}, requestUserRowId={}", todoRowId, userRowId);
+            throw new ForbiddenException(DeskErrorCode.TODO_ACCESS_DENIED);
+        }
+        return todo;
     }
 
     private void validateAssetOwnership(Asset asset, Long userRowId) {

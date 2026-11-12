@@ -27,8 +27,8 @@ public interface ExpenseRepository {
     /** 카테고리 + 그 하위 카테고리들의 기간 내 지출 합계 (예산 알림 roll-up용). */
     long sumAmountByCategoryRollup(Long userRowId, Long categoryRowId, ExpenseType expenseType,
                                    LocalDate startDate, LocalDate endDate);
-    List<Expense> findByCalendarEvent(Long calendarEventRowId);
-    List<Expense> findByTodo(Long todoRowId);
+    List<Expense> findByCalendarEvent(Long userRowId, Long calendarEventRowId);
+    List<Expense> findByTodo(Long userRowId, Long todoRowId);
     Expense save(Expense expense);
     void delete(Expense expense);
 

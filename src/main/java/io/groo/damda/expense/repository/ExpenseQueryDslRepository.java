@@ -207,11 +207,12 @@ public class ExpenseQueryDslRepository implements ExpenseRepository {
     }
 
     @Override
-    public List<Expense> findByCalendarEvent(Long calendarEventRowId) {
+    public List<Expense> findByCalendarEvent(Long userRowId, Long calendarEventRowId) {
         return queryFactory.selectFrom(expense)
             .leftJoin(expense.category).fetchJoin()
             .leftJoin(expense.asset).fetchJoin()
             .where(
+                expense.user.rowId.eq(userRowId),
                 expense.calendarEvent.rowId.eq(calendarEventRowId),
                 expense.isDeleted.eq(YNType.N)
             )
@@ -220,11 +221,12 @@ public class ExpenseQueryDslRepository implements ExpenseRepository {
     }
 
     @Override
-    public List<Expense> findByTodo(Long todoRowId) {
+    public List<Expense> findByTodo(Long userRowId, Long todoRowId) {
         return queryFactory.selectFrom(expense)
             .leftJoin(expense.category).fetchJoin()
             .leftJoin(expense.asset).fetchJoin()
             .where(
+                expense.user.rowId.eq(userRowId),
                 expense.todo.rowId.eq(todoRowId),
                 expense.isDeleted.eq(YNType.N)
             )

@@ -224,7 +224,7 @@ public class ExpenseApiController {
     public ApiResponse<ExpenseApiDto.ListResponse> getExpensesByCalendarEvent(
             @LoginUser UserPrincipal loginUser,
             @PathVariable Long eventId) {
-        List<ExpenseServiceDto.ExpenseInfo> infos = expenseService.getExpensesByCalendarEvent(eventId);
+        List<ExpenseServiceDto.ExpenseInfo> infos = expenseService.getExpensesByCalendarEvent(loginUser.getRowId(), eventId);
         return ApiResponse.success(ExpenseApiDto.ListResponse.from(infos));
     }
 
@@ -232,7 +232,7 @@ public class ExpenseApiController {
     public ApiResponse<ExpenseApiDto.ListResponse> getExpensesByTodo(
             @LoginUser UserPrincipal loginUser,
             @PathVariable Long todoId) {
-        List<ExpenseServiceDto.ExpenseInfo> infos = expenseService.getExpensesByTodo(todoId);
+        List<ExpenseServiceDto.ExpenseInfo> infos = expenseService.getExpensesByTodo(loginUser.getRowId(), todoId);
         return ApiResponse.success(ExpenseApiDto.ListResponse.from(infos));
     }
 

@@ -660,27 +660,27 @@ class ExpenseApiControllerTest {
     }
 
     @Test
-    @DisplayName("GET /calendar/event/{eventId}/expenses — 이벤트 id 로 조회 위임")
+    @DisplayName("GET /calendar/event/{eventId}/expenses — 로그인 사용자와 이벤트 id 로 조회 위임 (DAM-1)")
     void getExpensesByCalendarEvent() throws Exception {
-        given(expenseService.getExpensesByCalendarEvent(77L)).willReturn(List.of(sampleInfo()));
+        given(expenseService.getExpensesByCalendarEvent(1L, 77L)).willReturn(List.of(sampleInfo()));
 
         mockMvc.perform(get("/api/v1/calendar/event/{eventId}/expenses", 77L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.expenses[0].rowId").value(10));
 
-        verify(expenseService).getExpensesByCalendarEvent(77L);
+        verify(expenseService).getExpensesByCalendarEvent(1L, 77L);
     }
 
     @Test
-    @DisplayName("GET /todo/{todoId}/expenses — 투두 id 로 조회 위임")
+    @DisplayName("GET /todo/{todoId}/expenses — 로그인 사용자와 투두 id 로 조회 위임 (DAM-1)")
     void getExpensesByTodo() throws Exception {
-        given(expenseService.getExpensesByTodo(88L)).willReturn(List.of(sampleInfo()));
+        given(expenseService.getExpensesByTodo(1L, 88L)).willReturn(List.of(sampleInfo()));
 
         mockMvc.perform(get("/api/v1/todo/{todoId}/expenses", 88L))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.expenses[0].rowId").value(10));
 
-        verify(expenseService).getExpensesByTodo(88L);
+        verify(expenseService).getExpensesByTodo(1L, 88L);
     }
 
     @Test
