@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -294,11 +296,30 @@ class RequestResponseLoggingFilterRoundTripTest {
         }
 
         @Test
+        @DisplayName("마스킹 경로는 실제 컨트롤러 매핑과 같다 — UserApiController 의 클래스 + 메서드 매핑(DAM-8 잔여: /api/v1/me 로 잘못 적혀 있었다)")
+        void reauthPathMatchesRealControllerMapping() throws Exception {
+            var classMapping = io.groo.damda.user.controller.UserApiController.class
+                    .getAnnotation(org.springframework.web.bind.annotation.RequestMapping.class);
+            var method = java.util.Arrays.stream(io.groo.damda.user.controller.UserApiController.class.getMethods())
+                    .filter(m -> m.getName().equals("verifyReauthEmailCode"))
+                    .findFirst().orElseThrow();
+            var methodMapping = method.getAnnotation(PostMapping.class);
+
+            assertThat(classMapping.value()[0] + methodMapping.value()[0])
+                    .isEqualTo(RequestResponseLoggingFilter.REAUTH_EMAIL_CODE_VERIFY_PATH);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @ValueSource(strings = {
+                RequestResponseLoggingFilter.REAUTH_EMAIL_CODE_VERIFY_PATH,
+                // 디코딩 · 정규화 뒤 같은 컨트롤러에 닿는 변형도 가린다(RequestPaths.normalized)
+                "/api/v1/users/me/reauth/email%2Dcode/verify"
+        })
         @DisplayName("재인증 이메일 코드(6자리)는 가려진다 — core 는 43자 미만 code 를 남겨서 평문이던 자리(보안 점검 DAM-8)")
-        void reauthEmailCodeIsMasked() throws Exception {
+        void reauthEmailCodeIsMasked(String path) throws Exception {
             String body = "{\"code\":\"482913\",\"purpose\":\"WITHDRAW\"}";
 
-            String received = mockMvc().perform(post("/api/v1/me/reauth/email-code/verify")
+            String received = mockMvc().perform(post(java.net.URI.create(path))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andExpect(status().isOk())
@@ -306,10 +327,22 @@ class RequestResponseLoggingFilterRoundTripTest {
 
             assertThat(received).isEqualTo(body);
             String logged = loggedText();
-            assertThat(logged).contains("/api/v1/me/reauth/email-code/verify");
+            assertThat(logged).contains("reauth");
             assertThat(logged).doesNotContain("482913");
             assertThat(logged).contains("\"code\":\"***\"");
             assertThat(logged).contains("WITHDRAW");
+        }
+
+        @Test
+        @DisplayName("캘린더 초대 코드(inviteCode)는 어느 경로에서든 가려진다(보안 점검 DAM-4 잔여)")
+        void inviteCodeIsMasked() throws Exception {
+            String code = "0123456789ABCDEF0123456789ABCDEF";
+            mockMvc().perform(post("/echo")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"inviteCode\":\"" + code + "\"}"))
+                    .andExpect(status().isOk());
+
+            assertThat(loggedText()).doesNotContain(code).contains("\"inviteCode\":\"***\"");
         }
 
         @Test
@@ -450,7 +483,7 @@ class RequestResponseLoggingFilterRoundTripTest {
                     .body(body);
         }
 
-        @PostMapping(value = "/api/v1/me/reauth/email-code/verify", produces = "text/plain;charset=UTF-8")
+        @PostMapping(value = RequestResponseLoggingFilter.REAUTH_EMAIL_CODE_VERIFY_PATH, produces = "text/plain;charset=UTF-8")
         String reauthVerify(@RequestBody String body) {
             return body;
         }
