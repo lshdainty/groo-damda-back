@@ -280,4 +280,27 @@ class OAuthLinkServiceImplTest {
         assertThatThrownBy(() -> sut.unlink(USER_ID, "google", "ticket-u"))
                 .isInstanceOf(ExternalServiceException.class);
     }
+
+    // ==================== provider 허용 목록 (보안 점검 S-2 잔여) ====================
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "{0}")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "..%2Fadmin", "../users", "google?userId=victim", "google#", "github", ""})
+    @DisplayName("SSO 가 모르는 제공자 값은 연동·해제 모두 서비스 토큰을 받기 전에 거절한다 — 주소에 이어 붙이지 않는다")
+    void rejectsUnknownProvider(String provider) {
+        assertThatThrownBy(() -> sut.startLink(USER_ID, provider, null, "t"))
+                .isInstanceOf(io.groo.core.exception.InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(io.groo.damda.common.exception.DeskErrorCode.OAUTH_PROVIDER_INVALID);
+        assertThatThrownBy(() -> sut.unlink(USER_ID, provider, "t"))
+                .isInstanceOf(io.groo.core.exception.InvalidValueException.class);
+        org.mockito.Mockito.verifyNoInteractions(ssoOAuth2Client, ssoRestTemplate);
+    }
+
+    @Test
+    @DisplayName("대소문자 · 앞뒤 공백은 정규화해 SSO 제공자(google · kakao · naver)로 받는다")
+    void acceptsKnownProvidersCaseInsensitive() {
+        assertThat(OAuthLinkServiceImpl.pathSegmentOf(" GOOGLE ")).isEqualTo("google");
+        assertThat(OAuthLinkServiceImpl.pathSegmentOf("Kakao")).isEqualTo("kakao");
+        assertThat(OAuthLinkServiceImpl.pathSegmentOf("naver")).isEqualTo("naver");
+    }
 }
