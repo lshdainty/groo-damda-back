@@ -89,8 +89,10 @@ public class UserCalendarServiceImpl implements UserCalendarService {
     @Transactional
     public UserCalendarServiceDto.CalendarInfo toggleVisibility(Long calendarId, Long userRowId) {
         UserCalendar calendar = findCalendarOrThrow(calendarId);
-        // 표시 토글은 캘린더 멤버(소유+공유) 누구나 가능
-        membershipValidator.validateMembership(calendarId, userRowId);
+        // 표시 여부는 멤버마다가 아니라 <b>캘린더 하나에 한 값</b>이라, 바꾸면 소유자·다른 멤버 화면에서도
+        // 숨겨진다. 그래서 쓰기 권한(소유·편집)이 있어야 바꾼다 — 종전엔 읽기 전용 멤버도 소유자의 화면에서
+        // 캘린더를 숨길 수 있었다(보안 점검 DAM-8).
+        membershipValidator.validateCanWrite(calendarId, userRowId);
 
         // 기본 캘린더는 숨길 수 없다. 일정을 만들 때 캘린더를 안 고르면 서버가 기본 캘린더를 대입하는데,
         // 그 기본 캘린더까지 숨겨져 있으면 방금 저장한 일정이 곧바로 안 보인다 — 숨긴 캘린더는 목록에서
