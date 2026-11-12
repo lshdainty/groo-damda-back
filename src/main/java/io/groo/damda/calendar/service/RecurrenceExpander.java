@@ -41,9 +41,10 @@ public final class RecurrenceExpander {
     /**
      * 한 이벤트가 <b>조회 구간 안에서</b> 만들 수 있는 발생 수 상한 — 무한 전개 방어용.
      *
-     * <p>시작일이 아니라 구간 기준이라, 실제 클라이언트가 쓰는 가장 넓은 구간
-     * (웹 연 뷰 366일 · 앱 월 단위)의 DAILY 발생 수보다 한참 크다. 정상 조회는
-     * 여기 닿지 않으므로, 걸린다면 구간이 비정상적으로 넓다는 뜻이고 로그가 남는다.
+     * <p>시작일이 아니라 구간 기준이다. 일정 목록 조회는 서비스가 구간 폭을
+     * {@code CalendarEventServiceImpl.MAX_QUERY_SPAN_DAYS}(62일)로 막으므로 DAILY 도
+     * 63회를 넘지 않는다 — 이 상한은 그 검사를 거치지 않는 호출을 위한 마지막 방어선이고,
+     * 걸린다면 구간이 비정상적으로 넓다는 뜻이라 로그가 남는다.
      */
     static final int MAX_OCCURRENCES_IN_RANGE = 2000;
 

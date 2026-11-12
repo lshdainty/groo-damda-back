@@ -111,6 +111,57 @@ class CalendarEventServiceImplTest {
                 .isInstanceOf(InvalidValueException.class);
     }
 
+    // ─── 조회 기간 폭 (보안 점검: /calendar/events 기간 폭) ─────────────────────
+    //
+    // 반복 일정은 일정 하나가 구간 안에서 최대 2,000회까지 펼쳐진다. 기간 폭에 상한이 없을 때
+    // 매일 반복 50개를 0001~9999 로 조회하면 발생 100,000건 · 응답 약 43.7MB 가 나왔다
+    // (한 달 조회는 1,500건 · 약 0.65MB). 지금은 조회 자체를 거절하고 DB 도 건드리지 않는다.
+
+    private void assertRangeRejected(LocalDateTime start, LocalDateTime end) {
+        assertThatThrownBy(() -> sut.getEvents(USER_ID, start, end))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting(e -> ((InvalidValueException) e).getErrorCode())
+                .isEqualTo(DeskErrorCode.PERIOD_OUT_OF_RANGE);
+        org.mockito.Mockito.verifyNoInteractions(calendarEventRepository, calendarMembershipValidator);
+    }
+
+    @Test
+    @DisplayName("getEvents — 0001~9999 처럼 터무니없이 넓은 기간은 거부한다")
+    void getEventsRejectsHugeRange() {
+        assertRangeRejected(LocalDateTime.of(1, 1, 1, 0, 0), LocalDateTime.of(9999, 12, 31, 23, 59, 59));
+    }
+
+    @Test
+    @DisplayName("getEvents — 폭이 상한(62일)을 1초라도 넘으면 거부한다")
+    void getEventsRejectsRangeJustOverSpan() {
+        LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
+        assertRangeRejected(start, start.plusDays(CalendarEventServiceImpl.MAX_QUERY_SPAN_DAYS).plusSeconds(1));
+    }
+
+    @Test
+    @DisplayName("getEvents — 1년 범위(옛 웹 연 보기)도 이제 거부한다")
+    void getEventsRejectsYearRange() {
+        assertRangeRejected(LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 12, 31, 23, 59, 59));
+    }
+
+    @Test
+    @DisplayName("getEvents — 폭은 짧아도 연도가 1900~2199 밖이면 거부한다")
+    void getEventsRejectsYearOutOfBounds() {
+        assertRangeRejected(LocalDateTime.of(1, 1, 1, 0, 0), LocalDateTime.of(1, 1, 31, 23, 59, 59));
+        assertRangeRejected(LocalDateTime.of(9999, 12, 1, 0, 0), LocalDateTime.of(9999, 12, 31, 23, 59, 59));
+    }
+
+    @Test
+    @DisplayName("getEvents — 폭이 정확히 상한(62일)이면 통과한다 — 웹·앱 월 보기(최대 31일)는 한참 안쪽")
+    void getEventsAllowsRangeAtSpan() {
+        given(calendarMembershipValidator.getAccessibleCalendarIds(USER_ID)).willReturn(java.util.List.of(9L));
+        LocalDateTime start = LocalDateTime.of(2026, 1, 1, 0, 0);
+
+        org.assertj.core.api.Assertions.assertThat(
+                sut.getEvents(USER_ID, start, start.plusDays(CalendarEventServiceImpl.MAX_QUERY_SPAN_DAYS)))
+                .isEmpty();
+    }
+
     @Test
     @DisplayName("createEvent — 공유 캘린더에 쓰기 권한이 없으면 거부")
     void createRejectsWhenNoWritePermission() {
