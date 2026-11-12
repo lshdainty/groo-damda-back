@@ -23,6 +23,16 @@ public final class PaymentTextParsers {
     }
 
     /**
+     * 받아들이는 본문 최대 길이(글자 수). 이보다 길면 결제 문자가 아니라고 본다.
+     *
+     * <p>근거 — 국내 장문 문자(LMS)의 본문 상한이 2,000바이트(EUC-KR, 한글 1,000자)이고,
+     * 앱이 보내는 카드사·은행 알림은 제목 + 펼친 본문 한 통이라 그보다 짧다. 글자 수로 2,000 이면
+     * 영문·숫자로만 꽉 채운 LMS 도 들어간다. 종전엔 상한이 없어 20KB 본문 한 통이 정규식에서
+     * 코어 하나를 오래 붙잡았다(보안 점검 DAM-3).
+     */
+    public static final int MAX_TEXT_LENGTH = 2_000;
+
+    /**
      * 우선순위 오름차순으로 정렬해 둔 파서 목록.
      *
      * <p>상태가 없는 순수 파서라 인스턴스를 공유해도 안전하다.
@@ -73,6 +83,8 @@ public final class PaymentTextParsers {
      */
     private static PaymentTextParser find(String text) {
         if (text == null || text.isBlank()) return null;
+        // 어느 파서의 정규식에도 닿기 전에 자른다 — 결제 문자가 이만큼 길 일은 없다.
+        if (text.length() > MAX_TEXT_LENGTH) return null;
         for (PaymentTextParser parser : PARSERS) {
             if (parser.claims(text)) {
                 return parser.accepts(text) ? parser : null;
