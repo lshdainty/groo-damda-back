@@ -17,6 +17,7 @@ import io.groo.damda.calendar.domain.CalendarEvent;
 import io.groo.damda.calendar.repository.CalendarEventRepository;
 import io.groo.damda.calendar.service.CalendarMembershipValidator;
 import io.groo.damda.common.exception.DeskErrorCode;
+import io.groo.damda.common.validation.PeriodLimits;
 import io.groo.damda.expense.domain.Expense;
 import io.groo.damda.expense.domain.ExpenseAggregates;
 import io.groo.damda.expense.domain.ExpenseBudget;
@@ -1538,6 +1539,8 @@ public class ExpenseServiceImpl implements ExpenseService {
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new InvalidValueException(DeskErrorCode.EXPENSE_INVALID_DATE_RANGE);
         }
+        // 연도 범위·최대 폭 — 기간 요약은 달마다 버킷을 만든다(보안 점검 DAM-2).
+        PeriodLimits.check(startDate, endDate);
     }
 
     /**

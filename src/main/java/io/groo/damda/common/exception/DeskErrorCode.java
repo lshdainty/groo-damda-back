@@ -14,6 +14,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     VALIDATION_FAILED("COMMON_422", "error.common.validation.failed", HttpStatus.UNPROCESSABLE_ENTITY),
     CONCURRENT_MODIFICATION("COMMON_409", "error.common.concurrent.modification", HttpStatus.CONFLICT),
     INVALID_DATE_VALUE("COMMON_400", "error.common.invalid.date.value", HttpStatus.BAD_REQUEST),
+    // 기간 조회의 연도 범위·최대 폭(PeriodLimits, 보안 점검 DAM-2). 코드는 다른 입력 오류와 같은 COMMON_400.
+    PERIOD_OUT_OF_RANGE("COMMON_400", "error.common.period.out.of.range", HttpStatus.BAD_REQUEST),
     MALFORMED_REQUEST_BODY("COMMON_400", "error.common.malformed.request.body", HttpStatus.BAD_REQUEST),
     // 경로는 있는데 메서드가 없는 자리(QA 2026-09-03 #64). 매핑이 아예 없는 경로는 core 가
     // NoResourceFoundException 을 COMMON_404 로 잡으므로 여기에 짝이 되는 상수를 두지 않는다.

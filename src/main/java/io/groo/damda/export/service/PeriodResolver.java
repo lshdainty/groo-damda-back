@@ -1,5 +1,6 @@
 package io.groo.damda.export.service;
 
+import io.groo.damda.common.validation.PeriodLimits;
 import io.groo.damda.export.type.ExportPeriod;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +37,8 @@ public class PeriodResolver {
                 if (customStart.isAfter(customEnd)) {
                     throw new IllegalArgumentException("시작일이 종료일보다 늦을 수 없어요");
                 }
+                // 직접 고른 기간만 바깥에서 온다 — 0001~9999 같은 폭을 막는다(보안 점검 DAM-2).
+                PeriodLimits.check(customStart, customEnd);
                 yield new DateRange(customStart, customEnd);
             }
         };

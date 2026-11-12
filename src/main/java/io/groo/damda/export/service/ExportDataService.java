@@ -7,6 +7,7 @@ import io.groo.damda.asset.repository.AssetRepository;
 import io.groo.damda.asset.service.dto.AssetServiceDto;
 import io.groo.damda.calendar.repository.CalendarEventRepository;
 import io.groo.damda.calendar.service.dto.CalendarEventServiceDto;
+import io.groo.damda.expense.domain.ExpenseBudget;
 import io.groo.damda.expense.repository.ExpenseBudgetRepository;
 import io.groo.damda.expense.repository.ExpenseCategoryRepository;
 import io.groo.damda.expense.repository.ExpenseRepository;
@@ -30,6 +31,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -145,8 +147,17 @@ public class ExportDataService {
         List<List<String>> rows = new ArrayList<>();
         YearMonth from = YearMonth.from(start);
         YearMonth to = YearMonth.from(end);
-        for (YearMonth ym = from; !ym.isAfter(to); ym = ym.plusMonths(1)) {
-            expenseBudgetRepository.findByUser(userRowId, ym.getYear(), ym.getMonthValue()).forEach(b -> {
+        // 한 번에 읽고 기간으로 거른다. 종전엔 달마다 조회해 기간 폭만큼 쿼리가 나갔다
+        // (0001~9999 면 12만 번 — 보안 점검 DAM-2). 예산은 사용자당 (달 × 카테고리) 수준이라 작다.
+        // 정렬은 이른 달부터 — 같은 달 안의 순서는 저장소가 준 순서를 그대로 둔다(stable sort).
+        expenseBudgetRepository.findByUser(userRowId, null, null).stream()
+            .filter(b -> {
+                YearMonth ym = YearMonth.of(b.getBudgetYear(), b.getBudgetMonth());
+                return !ym.isBefore(from) && !ym.isAfter(to);
+            })
+            .sorted(Comparator.comparing(ExpenseBudget::getBudgetYear)
+                .thenComparing(ExpenseBudget::getBudgetMonth))
+            .forEach(b -> {
                 ExpenseBudgetServiceDto.BudgetInfo i = ExpenseBudgetServiceDto.BudgetInfo.from(b);
                 rows.add(List.of(
                     cell(i.budgetYear()),
@@ -155,7 +166,6 @@ public class ExportDataService {
                     money(mask, i.budgetAmount())
                 ));
             });
-        }
         return new ExportTable(ExportType.BUDGET, headers, rows);
     }
 

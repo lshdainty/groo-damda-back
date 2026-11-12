@@ -8,6 +8,7 @@ import io.groo.damda.calendar.domain.CalendarEvent;
 import io.groo.damda.calendar.repository.CalendarEventRepository;
 import io.groo.damda.calendar.type.CalendarEventType;
 import io.groo.damda.expense.domain.Expense;
+import io.groo.damda.expense.domain.ExpenseBudget;
 import io.groo.damda.expense.repository.ExpenseBudgetRepository;
 import io.groo.damda.expense.repository.ExpenseCategoryRepository;
 import io.groo.damda.expense.repository.ExpenseRepository;
@@ -38,6 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 내보내기 표의 <b>일시 열</b> 규칙 검증 (QA #51).
@@ -236,6 +239,43 @@ class ExportDataServiceTest {
 
             assertThat(t.headers().get(5)).isEqualTo("마감일");
             assertThat(t.rows().get(0).get(5)).isEqualTo("2026-09-03");
+        }
+    }
+
+    @Nested
+    @DisplayName("예산 표 — 기간 폭과 무관하게 한 번만 조회한다(보안 점검 DAM-2)")
+    class BudgetTable {
+
+        private ExpenseBudget budget(int year, int month, long amount) {
+            return ExpenseBudget.createBudget(user(), null, amount, year, month);
+        }
+
+        @Test
+        @DisplayName("10년 기간도 저장소 조회는 1번 — 종전엔 달마다(120번) 조회했다")
+        void singleQueryForWideRange() {
+            given(expenseBudgetRepository.findByUser(USER_ID, null, null)).willReturn(List.of());
+
+            sutInSeoul().buildTable(ExportType.BUDGET, USER_ID,
+                LocalDate.of(2017, 1, 1), LocalDate.of(2026, 12, 31), false);
+
+            verify(expenseBudgetRepository, times(1)).findByUser(anyLong(), any(), any());
+        }
+
+        @Test
+        @DisplayName("기간 밖 달은 빼고, 이른 달부터 싣는다")
+        void filtersAndSortsByMonth() {
+            // 저장소는 최근 달부터 준다(year desc, month desc)
+            given(expenseBudgetRepository.findByUser(USER_ID, null, null)).willReturn(List.of(
+                budget(2026, 10, 400L),
+                budget(2026, 9, 300L),
+                budget(2026, 8, 200L),
+                budget(2026, 7, 100L)));
+
+            ExportTable t = sutInSeoul().buildTable(ExportType.BUDGET, USER_ID,
+                LocalDate.of(2026, 8, 15), LocalDate.of(2026, 9, 10), false);
+
+            assertThat(t.rows()).extracting(r -> r.get(1) + ":" + r.get(3))
+                .containsExactly("8:200", "9:300");
         }
     }
 }

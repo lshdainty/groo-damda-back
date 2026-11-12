@@ -360,6 +360,16 @@ class ExpenseServiceImplTest {
     }
 
     @Test
+    @DisplayName("getRangeSummary — 0001~9999 기간은 조회 전에 거부한다(월별 버킷 12만 개, 보안 점검 DAM-2)")
+    void getRangeSummaryRejectsExtremeRange() {
+        assertThatThrownBy(() -> sut.getRangeSummary(USER_ID,
+                LocalDate.of(1, 1, 1), LocalDate.of(9999, 12, 31)))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.PERIOD_OUT_OF_RANGE);
+        verify(expenseRepository, never()).findByDateRange(anyLong(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("getRangeSummary — 자식 카테고리가 다른 부모로 이동해도 합계는 leaf 기준으로 정확하다(부모 라벨만 변경)")
     void rangeSummaryAggregatesByLeafRegardlessOfParent() {
         User u = user(USER_ID);
