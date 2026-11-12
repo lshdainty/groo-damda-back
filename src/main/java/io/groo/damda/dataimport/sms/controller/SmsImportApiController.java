@@ -1,5 +1,7 @@
 package io.groo.damda.dataimport.sms.controller;
 
+import jakarta.validation.Valid;
+
 import io.groo.core.controller.ApiResponse;
 import io.groo.damda.common.time.WallClockDateTimeParser;
 import io.groo.damda.dataimport.sms.controller.dto.SmsImportApiDto;
@@ -45,7 +47,7 @@ public class SmsImportApiController {
     @PostMapping("/commit")
     public ApiResponse<SmsImportApiDto.CommitResponse> commit(
             @LoginUser UserPrincipal loginUser,
-            @RequestBody SmsImportApiDto.CommitRequest request) {
+            @Valid @RequestBody SmsImportApiDto.CommitRequest request) {
         SmsImportServiceDto.CommitResult result = smsImportService.commit(
             new SmsImportServiceDto.CommitCommand(
                 loginUser.getRowId(),

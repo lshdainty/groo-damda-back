@@ -1,5 +1,11 @@
 package io.groo.damda.expense.domain;
 
+import io.groo.damda.common.validation.InstallmentLimits;
+
+import io.groo.damda.common.exception.DeskErrorCode;
+
+import io.groo.core.exception.InvalidValueException;
+
 import io.groo.core.type.YNType;
 import io.groo.damda.asset.domain.Asset;
 import io.groo.damda.calendar.domain.CalendarEvent;
@@ -208,11 +214,18 @@ public class Expense extends AuditingFieldsWithIp {
     }
 
     /**
-     * 할부 개월 정규화 — 1 이하·null 은 일시불(null)로 통일한다.
+     * 할부 개월 정규화 — 1 이하·null 은 일시불(null)로 통일하고, {@link InstallmentLimits#MAX_MONTHS} 를 넘으면 거절한다.
      * "1개월 할부"는 일시불과 같아서 두 표기가 섞이면 청구 계산이 갈린다.
      */
     private static Integer normalizeInstallment(Integer months) {
-        return (months == null || months <= 1) ? null : months;
+        if (months == null || months <= 1) {
+            return null;
+        }
+        // 상한 — 요청 DTO(@Max)를 거치지 않는 경로(미리보기 쿼리·문자 저장·교체)도 여기를 지난다(보안 점검 DAM-9).
+        if (months > InstallmentLimits.MAX_MONTHS) {
+            throw new InvalidValueException(DeskErrorCode.EXPENSE_INSTALLMENT_OUT_OF_RANGE);
+        }
+        return months;
     }
 
     /**
