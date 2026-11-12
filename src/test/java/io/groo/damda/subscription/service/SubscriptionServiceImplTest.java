@@ -1,5 +1,7 @@
 package io.groo.damda.subscription.service;
 
+import io.groo.damda.common.exception.DeskErrorCode;
+
 import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.core.type.YNType;
@@ -45,6 +47,7 @@ class SubscriptionServiceImplTest {
         given(plan.getDurationMonths()).willReturn(durationMonths);
         org.mockito.Mockito.lenient().when(plan.getPlanCode()).thenReturn("SECURITIES");
         org.mockito.Mockito.lenient().when(plan.getPlanName()).thenReturn("증권 구독");
+        org.mockito.Mockito.lenient().when(plan.getIsActive()).thenReturn(YNType.Y);
         return plan;
     }
 
@@ -83,6 +86,22 @@ class SubscriptionServiceImplTest {
 
         assertThatThrownBy(() -> sut.subscribe(USER, "UNKNOWN"))
             .isInstanceOf(EntityNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("판매 중지 플랜(is_active=N)은 SUBSCRIPTION_PLAN_NOT_ON_SALE — 목록에 없는 플랜으로 구독이 생기던 자리(DAM-8)")
+    void subscribe_planNotOnSale() {
+        SubscriptionPlan stopped = mock(SubscriptionPlan.class);
+        given(stopped.getIsActive()).willReturn(YNType.N);
+        given(subscriptionRepository.findEntitled(eq(USER), eq(YNType.N), any()))
+            .willReturn(List.of());
+        given(planRepository.findByPlanCodeAndIsDeleted("SECURITIES", YNType.N))
+            .willReturn(Optional.of(stopped));
+
+        assertThatThrownBy(() -> sut.subscribe(USER, "SECURITIES"))
+            .isInstanceOf(InvalidValueException.class)
+            .extracting("errorCode").isEqualTo(DeskErrorCode.SUBSCRIPTION_PLAN_NOT_ON_SALE);
+        verify(subscriptionRepository, never()).save(any());
     }
 
     @Test
@@ -164,6 +183,7 @@ class SubscriptionServiceImplTest {
         org.mockito.Mockito.lenient().when(plan.getPlanName()).thenReturn(name);
         org.mockito.Mockito.lenient().when(plan.getDurationMonths()).thenReturn(durationMonths);
         org.mockito.Mockito.lenient().when(plan.getPrice()).thenReturn(price);
+        org.mockito.Mockito.lenient().when(plan.getIsActive()).thenReturn(YNType.Y);
         return plan;
     }
 
