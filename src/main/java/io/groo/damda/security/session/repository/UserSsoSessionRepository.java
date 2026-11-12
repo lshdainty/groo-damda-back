@@ -18,7 +18,9 @@ public interface UserSsoSessionRepository extends JpaRepository<UserSsoSession, 
      *
      * <p>같은 세션에 동시 요청이 들어오면 각자 SSO 재발급을 시도하고, rotation 때문에 하나만
      * 성공한다. 나머지는 이미 폐기된 토큰으로 거부당해 멀쩡한 사용자가 로그아웃된다.
-     * 여기서 줄을 세워 그 경합을 없앤다. 만료 직후 한 번만 지나가는 경로라 비용도 거의 없다.
+     * 그 줄은 {@code SsoSessionService} 가 프로세스 안 잠금으로 세우고, 이 잠금은 판정·반영의
+     * <b>짧은 트랜잭션 동안만</b> 쥔다 — SSO 호출(읽기 타임아웃 10초) 동안 쥐면 SSO 가 느릴 때
+     * 커넥션과 잠금이 함께 묶인다(보안 점검 DAM-5 잔여).
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from UserSsoSession s where s.sessionId = :sessionId and s.isDeleted = :isDeleted")

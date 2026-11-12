@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
@@ -60,19 +61,25 @@ public class TokenExchangeService {
      * <p>만료 직전 갱신도 이 경로를 탄다(보안 점검 DAM-5) — 세션 행·미끄럼 수명·절대 수명(30일)을
      * {@link SsoSessionService#refresh} 가 한 자리에서 본다.
      *
+     * <p><b>트랜잭션을 걸지 않는다.</b> 걸면 {@link SsoSessionService#refresh} 의 단계들이 여기 합류해
+     * SSO 를 부르는 동안(읽기 타임아웃 10초) 커넥션과 세션 행 잠금을 그대로 쥐게 된다(보안 점검 DAM-5
+     * 잔여). desk 토큰 발급 검증은 세션 회전과 같은 짧은 트랜잭션 안에서 돈다 — 검증이 실패하면 회전도
+     * 함께 롤백된다(종전 한 트랜잭션일 때와 같은 결말).
+     *
      * @param expired 서명이 검증된 토큰의 claims(만료됐거나 만료 직전)
      */
-    @Transactional
     public String reauthenticate(JwtClaimsPrincipal expired) {
-        SsoSessionService.RefreshResult result = ssoSessionService.refresh(expired.sessionId());
+        AtomicReference<String> exchanged = new AtomicReference<>();
+        SsoSessionService.RefreshResult result = ssoSessionService.refresh(expired.sessionId(),
+            // SSO 를 실제로 불렀다 — 로그인과 같은 경로로 태운다. desk 접근 권한·사용자 정보가
+            // 매 재발급마다 다시 확인된다(권한을 뺏겼으면 여기서 걸린다).
+            ssoAccessToken -> exchanged.set(doExchange(ssoAccessToken, expired.sessionId()).response().accessToken()));
         if (!result.renewed()) {
             return null;
         }
 
         if (result.ssoAccessToken() != null) {
-            // SSO 를 실제로 불렀다 — 로그인과 같은 경로로 태운다. desk 접근 권한·사용자 정보가
-            // 매 재발급마다 다시 확인된다(권한을 뺏겼으면 여기서 걸린다).
-            return exchangeToken(result.ssoAccessToken(), expired.sessionId()).accessToken();
+            return exchanged.get();
         }
 
         // 앞선 요청이 방금 갱신해 뒀다. 신원은 서명이 검증된 만료 토큰에서 그대로 가져온다.
