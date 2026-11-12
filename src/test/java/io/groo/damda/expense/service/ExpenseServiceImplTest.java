@@ -93,6 +93,7 @@ class ExpenseServiceImplTest {
     @Mock private AssetRepository assetRepository;
     @Mock private AssetBalanceHistoryService balanceHistoryService;
     @Mock private CalendarEventRepository calendarEventRepository;
+    @Mock private io.groo.damda.calendar.service.CalendarMembershipValidator calendarMembershipValidator;
     @Mock private TodoRepository todoRepository;
     @Mock private UserRepository userRepository;
     @Mock private CardPaymentService cardPaymentService;
@@ -176,6 +177,99 @@ class ExpenseServiceImplTest {
 
         assertThatThrownBy(() -> sut.createExpense(createCmd(20L)))
                 .isInstanceOf(ForbiddenException.class);
+    }
+
+    private ExpenseServiceDto.CreateCommand createLinkedCmd(Long eventRowId, Long todoRowId) {
+        return new ExpenseServiceDto.CreateCommand(
+                USER_ID, 10L, null, ExpenseType.EXPENSE, 10_000L,
+                "점심", LocalDateTime.of(2026, 6, 1, 12, 0), "식당", "CARD", null,
+            null, null, null, eventRowId, todoRowId);
+    }
+
+    private io.groo.damda.todo.domain.Todo todo(long rowId, User owner) {
+        var todo = io.groo.damda.todo.domain.Todo.createTodo(owner, "장보기", null,
+                io.groo.damda.todo.type.TodoPriority.MEDIUM, null, null, io.groo.damda.todo.type.TodoType.TASK);
+        ReflectionTestUtils.setField(todo, "rowId", rowId);
+        return todo;
+    }
+
+    private io.groo.damda.calendar.domain.CalendarEvent event(long rowId, User owner,
+                                                              io.groo.damda.calendar.domain.UserCalendar calendar) {
+        var event = io.groo.damda.calendar.domain.CalendarEvent.createEvent(owner, "회식", null,
+                io.groo.damda.calendar.type.CalendarEventType.PERSONAL, null,
+                LocalDateTime.of(2026, 6, 1, 19, 0), LocalDateTime.of(2026, 6, 1, 21, 0),
+                io.groo.core.type.YNType.N, null, null, null, calendar);
+        ReflectionTestUtils.setField(event, "rowId", rowId);
+        return event;
+    }
+
+    @Test
+    @DisplayName("createExpense — 남의 할일에는 지출을 붙이지 못한다 (보안 점검 DAM-1)")
+    void createRejectsOthersTodo() {
+        User u = user(USER_ID);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(category(10L, u)));
+        given(todoRepository.findById(30L)).willReturn(Optional.of(todo(30L, user(999L))));
+
+        assertThatThrownBy(() -> sut.createExpense(createLinkedCmd(null, 30L)))
+                .isInstanceOf(ForbiddenException.class);
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createExpense — 내게 맡겨진 할일에는 붙일 수 있다 (DAM-1 경계)")
+    void createAllowsAssignedTodo() {
+        User u = user(USER_ID);
+        var assigned = todo(31L, user(999L));
+        ReflectionTestUtils.setField(assigned, "assignee", u);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(category(10L, u)));
+        given(todoRepository.findById(31L)).willReturn(Optional.of(assigned));
+
+        sut.createExpense(createLinkedCmd(null, 31L));
+
+        ArgumentCaptor<Expense> saved = ArgumentCaptor.forClass(Expense.class);
+        verify(expenseRepository).save(saved.capture());
+        assertThat(saved.getValue().getTodo()).isSameAs(assigned);
+    }
+
+    @Test
+    @DisplayName("createExpense — 캘린더 없는 남의 옛 일정에는 붙이지 못한다 (DAM-1)")
+    void createRejectsOthersLegacyEvent() {
+        User u = user(USER_ID);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(category(10L, u)));
+        given(calendarEventRepository.findById(40L)).willReturn(Optional.of(event(40L, user(999L), null)));
+
+        assertThatThrownBy(() -> sut.createExpense(createLinkedCmd(40L, null)))
+                .isInstanceOf(ForbiddenException.class);
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createExpense — 멤버가 아닌 캘린더의 일정에는 붙이지 못한다 (DAM-1)")
+    void createRejectsEventOfForeignCalendar() {
+        User u = user(USER_ID);
+        var calendar = org.mockito.Mockito.mock(io.groo.damda.calendar.domain.UserCalendar.class);
+        given(calendar.getRowId()).willReturn(5L);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(u));
+        given(expenseCategoryRepository.findById(10L)).willReturn(Optional.of(category(10L, u)));
+        given(calendarEventRepository.findById(41L)).willReturn(Optional.of(event(41L, user(999L), calendar)));
+        given(calendarMembershipValidator.validateMembership(5L, USER_ID))
+                .willThrow(new ForbiddenException(io.groo.damda.common.exception.DeskErrorCode.CALENDAR_ACCESS_DENIED));
+
+        assertThatThrownBy(() -> sut.createExpense(createLinkedCmd(41L, null)))
+                .isInstanceOf(ForbiddenException.class);
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getExpensesByTodo — 조회에 로그인 사용자를 넘긴다 (DAM-1)")
+    void getByTodoScopesToUser() {
+        given(expenseRepository.findByTodo(USER_ID, 30L)).willReturn(List.of());
+
+        assertThat(sut.getExpensesByTodo(USER_ID, 30L)).isEmpty();
+        verify(expenseRepository).findByTodo(USER_ID, 30L);
     }
 
     @Test
