@@ -1,5 +1,7 @@
 package io.groo.damda.common.event;
 
+import io.groo.core.security.event.SsoEventVerifier;
+import org.mockito.Spy;
 import io.groo.damda.security.session.service.SsoSessionService;
 import io.groo.damda.user.domain.User;
 import io.groo.damda.user.repository.UserRepository;
@@ -34,6 +36,8 @@ class SsoSessionEventSubscriberTest {
 
     @Mock private UserRepository userRepository;
     @Mock private SsoSessionService ssoSessionService;
+    /** 전환 기간 설정(서명 없음 허용) — 서명 판정은 SsoEventSignatureWiringTest 가 본다 */
+    @Spy private SsoEventVerifier ssoEventVerifier = new SsoEventVerifier(h -> null, null, false);
     @InjectMocks private SsoSessionEventSubscriber sut;
 
     /** 발행 쪽이 내보내는 그대로. */
