@@ -216,7 +216,7 @@ class OAuthLinkServiceImplTest {
                 .willReturn(ResponseEntity.ok(ApiResponse.success()));
 
         // provider 대문자로 넘겨도 소문자로 변환
-        sut.unlink(USER_ID, "GOOGLE");
+        sut.unlink(USER_ID, "GOOGLE", "ticket-u");
 
         ArgumentCaptor<HttpEntity<Void>> captor = headerEntityCaptor();
         org.mockito.Mockito.verify(ssoRestTemplate).exchange(eq(UNLINK_GOOGLE_PATH), eq(HttpMethod.DELETE),
@@ -224,6 +224,24 @@ class OAuthLinkServiceImplTest {
 
         assertThat(captor.getValue().getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
                 .isEqualTo("Bearer " + SVC_TOKEN);
+        // 재인증 티켓을 헤더로 SSO 에 넘긴다(S-2 잔여)
+        assertThat(captor.getValue().getHeaders().getFirst("X-Reauth-Token")).isEqualTo("ticket-u");
+    }
+
+    @Test
+    @DisplayName("unlink — 티켓이 없으면 헤더를 싣지 않는다(SSO 가 거절하게 둔다)")
+    void unlink_withoutTicket_noHeader() {
+        given(ssoOAuth2Client.issueServiceToken()).willReturn(SVC_TOKEN);
+        given(ssoRestTemplate.exchange(eq(UNLINK_GOOGLE_PATH), eq(HttpMethod.DELETE), any(HttpEntity.class),
+                any(ParameterizedTypeReference.class)))
+                .willReturn(ResponseEntity.ok(ApiResponse.success()));
+
+        sut.unlink(USER_ID, "google", null);
+
+        ArgumentCaptor<HttpEntity<Void>> captor = headerEntityCaptor();
+        org.mockito.Mockito.verify(ssoRestTemplate).exchange(eq(UNLINK_GOOGLE_PATH), eq(HttpMethod.DELETE),
+                captor.capture(), any(ParameterizedTypeReference.class));
+        assertThat(captor.getValue().getHeaders().getFirst("X-Reauth-Token")).isNull();
     }
 
     @Test
@@ -234,7 +252,7 @@ class OAuthLinkServiceImplTest {
                 any(ParameterizedTypeReference.class)))
                 .willReturn(ResponseEntity.ok(ApiResponse.error("FAIL", "연동되지 않은 계정입니다")));
 
-        assertThatThrownBy(() -> sut.unlink(USER_ID, "google"))
+        assertThatThrownBy(() -> sut.unlink(USER_ID, "google", "ticket-u"))
                 .isInstanceOf(InvalidValueException.class);
     }
 
@@ -247,7 +265,7 @@ class OAuthLinkServiceImplTest {
                 .willThrow(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request",
                         HttpHeaders.EMPTY, "{\"message\":\"연동 없음\"}".getBytes(), null));
 
-        assertThatThrownBy(() -> sut.unlink(USER_ID, "google"))
+        assertThatThrownBy(() -> sut.unlink(USER_ID, "google", "ticket-u"))
                 .isInstanceOf(InvalidValueException.class);
     }
 
@@ -259,7 +277,7 @@ class OAuthLinkServiceImplTest {
                 any(ParameterizedTypeReference.class)))
                 .willThrow(new ResourceAccessException("connection refused"));
 
-        assertThatThrownBy(() -> sut.unlink(USER_ID, "google"))
+        assertThatThrownBy(() -> sut.unlink(USER_ID, "google", "ticket-u"))
                 .isInstanceOf(ExternalServiceException.class);
     }
 }

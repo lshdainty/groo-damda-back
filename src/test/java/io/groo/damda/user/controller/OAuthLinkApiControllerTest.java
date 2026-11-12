@@ -109,10 +109,11 @@ class OAuthLinkApiControllerTest {
     @Test
     @DisplayName("DELETE /oauth/link/{provider} — provider·로그인 userId 로 연동 해제 위임")
     void unlink() throws Exception {
-        mockMvc.perform(delete("/api/v1/oauth/link/{provider}", "google"))
+        mockMvc.perform(delete("/api/v1/oauth/link/{provider}", "google").header("X-Reauth-Token", "ticket-u"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(oAuthLinkService).unlink("user1", "google");
+        // 재인증 티켓을 그대로 서비스로 넘긴다(S-2 잔여)
+        verify(oAuthLinkService).unlink("user1", "google", "ticket-u");
     }
 }

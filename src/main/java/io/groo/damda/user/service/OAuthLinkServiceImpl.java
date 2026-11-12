@@ -126,12 +126,17 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
     }
 
     @Override
-    public void unlink(String userId, String provider) {
+    public void unlink(String userId, String provider, String reauthToken) {
         String serviceToken = ssoOAuth2Client.issueServiceToken();
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(serviceToken);
+        // 해제도 본인 확인 티켓을 요구한다(보안 점검 S-2 잔여). DELETE 라 본문 대신 헤더로 넘긴다.
+        // 티켓이 없으면 싣지 않는다 — SSO 가 거절하게 둔다(옛 SSO 는 무시한다: 담다를 먼저 내보낼 수 있다).
+        if (reauthToken != null && !reauthToken.isBlank()) {
+            headers.set("X-Reauth-Token", reauthToken);
+        }
 
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
