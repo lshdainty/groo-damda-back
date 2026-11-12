@@ -17,6 +17,7 @@ import io.groo.damda.calendar.service.dto.EventReminderServiceDto;
 import io.groo.damda.calendar.service.dto.UserCalendarServiceDto;
 import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.damda.common.patch.Patch;
+import io.groo.damda.common.validation.PeriodLimits;
 import io.groo.damda.user.domain.User;
 import io.groo.damda.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +54,21 @@ public class CalendarEventServiceImpl implements CalendarEventService {
      * 나중에 "10분 전 푸시 + 10분 전 메일" 을 넣을 자리를 지금 막지 않기 위해서다.
      */
     private static final String DEFAULT_REMINDER_TYPE = "NOTIFICATION";
+
+    /**
+     * 일정 목록 조회({@code GET /calendar/events}) 한 번의 최대 기간 폭(일). 종료 ≤ 시작 + 이 값.
+     *
+     * <p>반복 일정은 일정 하나가 구간 안에서 최대 {@code RecurrenceExpander.MAX_OCCURRENCES_IN_RANGE}
+     * (2,000)회까지 펼쳐지므로, 폭에 상한이 없으면 매일 반복 50개만으로 요청 한 건이
+     * 발생 100,000건 · 응답 약 43MB 를 만들었다(보안 점검 — 한 달 조회는 1,500건 · 약 0.65MB).
+     *
+     * <p><b>값의 근거 — 화면이 보내는 가장 넓은 기간을 깨지 않는다.</b> 웹 {@code CalendarContent}
+     * 는 월·목록 보기 = 그달 1일~말일(최대 31일), 주 보기 = 7일만 요청하고, 앱
+     * {@code monthEventsProvider} 도 그달 1일~말일만 요청한다. 다른 호출처는 없다. 월 격자를 앞뒤
+     * 주까지(6주 = 42일) 불러오게 바뀌어도 들어가도록 두 달(62일)로 잡았다. 화면이 더 긴 기간을
+     * 한 번에 부르게 되면 여기를 같이 넓혀야 한다(웹 연 보기는 v2.0.0 에서 걷혔다).
+     */
+    static final long MAX_QUERY_SPAN_DAYS = 62;
 
     @Override
     @Transactional
@@ -120,9 +136,7 @@ public class CalendarEventServiceImpl implements CalendarEventService {
     public List<CalendarEventServiceDto.EventInfo> getEvents(Long userRowId, LocalDateTime startDate, LocalDateTime endDate) {
         log.debug("캘린더 이벤트 목록 조회: userRowId={}, startDate={}, endDate={}", userRowId, startDate, endDate);
 
-        if (startDate.isAfter(endDate)) {
-            throw new InvalidValueException(DeskErrorCode.CALENDAR_INVALID_DATE_RANGE);
-        }
+        validateQueryRange(startDate, endDate);
 
         // 접근 가능한(소유 + 공유받은) 모든 캘린더의 이벤트
         List<Long> calendarIds = calendarMembershipValidator.getAccessibleCalendarIds(userRowId);
@@ -393,6 +407,20 @@ public class CalendarEventServiceImpl implements CalendarEventService {
     private static void validateDateRange(LocalDateTime startDate, LocalDateTime endDate) {
         if (startDate == null || endDate == null || startDate.isAfter(endDate)) {
             throw new InvalidValueException(DeskErrorCode.CALENDAR_INVALID_DATE_RANGE);
+        }
+    }
+
+    /**
+     * 목록 조회 기간 검사 — 순서는 기존 {@code CAL_002}, 연도 범위·폭은 {@code PERIOD_OUT_OF_RANGE}.
+     *
+     * <p>연도 범위(1900~2199)는 내보내기·지출 기간 조회와 같은 {@link PeriodLimits} 를 태운다 — 폭만
+     * 막으면 {@code +999999999} 년 근처 구간에서 반복 전개의 날짜 덧셈이 넘쳐 500 이 난다.
+     */
+    private static void validateQueryRange(LocalDateTime startDate, LocalDateTime endDate) {
+        validateDateRange(startDate, endDate);
+        PeriodLimits.check(startDate.toLocalDate(), endDate.toLocalDate());
+        if (endDate.isAfter(startDate.plusDays(MAX_QUERY_SPAN_DAYS))) {
+            throw new InvalidValueException(DeskErrorCode.PERIOD_OUT_OF_RANGE);
         }
     }
 
