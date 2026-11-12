@@ -154,6 +154,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     EXPENSE_CARRYOVER_READONLY("EXP_049", "error.expense.carryover.readonly", HttpStatus.BAD_REQUEST),
     // 자동으로 만들어진 거래(이월 · 매도 손익 · 이체 이자)를 원본으로 반복 거래·더치페이를 만들 수 없다
     EXPENSE_AUTO_GENERATED_NO_DERIVE("EXP_050", "error.expense.auto.generated.no.derive", HttpStatus.BAD_REQUEST),
+    // 할부 개월 상한(InstallmentLimits.MAX_MONTHS, 보안 점검 DAM-9).
+    EXPENSE_INSTALLMENT_OUT_OF_RANGE("EXP_051", "error.expense.installment.out.of.range", HttpStatus.BAD_REQUEST),
     // 신용카드 결제일·이월(D7·D8·D15)
     ASSET_CARD_PAYMENT_DAY_REQUIRED("AST_033", "error.asset.card.payment.day.required", HttpStatus.BAD_REQUEST),
     ASSET_CARD_CARRYOVER_LOCKED("AST_034", "error.asset.card.carryover.locked", HttpStatus.BAD_REQUEST),

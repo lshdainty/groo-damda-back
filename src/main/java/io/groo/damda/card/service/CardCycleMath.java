@@ -1,5 +1,7 @@
 package io.groo.damda.card.service;
 
+import io.groo.damda.common.validation.InstallmentLimits;
+
 import io.groo.damda.expense.domain.Expense;
 import io.groo.damda.expense.type.ExpenseType;
 
@@ -67,7 +69,10 @@ public final class CardCycleMath {
             dues.put(first, e.getAmount());
             return dues;
         }
-        for (int seq = 1; seq <= e.getInstallmentMonths(); seq++) {
+        // 상한까지만 돈다 — 저장 경로는 상한을 넘는 값을 막지만(DAM-9), 그 전에 저장된 행이 Integer.MAX_VALUE 면
+        // seq <= months 가 넘쳐 반복이 끝나지 않았다. 상한 밖 회차는 어차피 실재하지 않는 값이다.
+        int months = Math.min(e.getInstallmentMonths(), InstallmentLimits.MAX_MONTHS);
+        for (int seq = 1; seq <= months; seq++) {
             long due = e.installmentAmountAt(seq);
             if (due != 0L) {
                 dues.merge(first.plusMonths(seq - 1L), due, Long::sum);

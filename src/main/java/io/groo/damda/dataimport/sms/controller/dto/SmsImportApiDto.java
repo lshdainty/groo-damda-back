@@ -1,5 +1,8 @@
 package io.groo.damda.dataimport.sms.controller.dto;
 
+import io.groo.damda.common.validation.InstallmentLimits;
+import jakarta.validation.constraints.Max;
+
 import io.groo.damda.asset.type.AssetType;
 import io.groo.damda.dataimport.sms.service.SmsConfidence;
 import io.groo.damda.dataimport.sms.service.dto.SmsImportServiceDto;
@@ -88,6 +91,7 @@ public class SmsImportApiDto {
         String expenseDate,
         /** 결제수단 코드(CASH/CARD/TRANSFER/OTHER). 비면 서버가 카드로 채운다. */
         String paymentMethod,
+        @Max(value = InstallmentLimits.MAX_MONTHS, message = "할부는 60개월까지 입력할 수 있어요")
         Integer installmentMonths,
         BigDecimal originalAmount,
         String originalCurrency,

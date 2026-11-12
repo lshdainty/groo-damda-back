@@ -242,6 +242,33 @@ class ExpenseApiControllerTest {
     }
 
     @Test
+    @DisplayName("POST /expense — 할부 60개월 초과는 400(보안 점검 DAM-9)")
+    void createExpenseRejectsHugeInstallment() throws Exception {
+        String body = """
+                {"categoryRowId":5,"expenseType":"EXPENSE","amount":10000,
+                 "expenseDate":"2026-07-03","installmentMonths":2147483647}
+                """;
+
+        mockMvc.perform(post("/api/v1/expense")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        verify(expenseService, never()).createExpense(any());
+    }
+
+    @Test
+    @DisplayName("PUT /expense/{id} — 실린 할부가 60개월을 넘으면 400(Optional 안쪽까지 검사, DAM-9)")
+    void updateExpenseRejectsHugeInstallment() throws Exception {
+        mockMvc.perform(put("/api/v1/expense/{id}", 3L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"installmentMonths\":61}"))
+                .andExpect(status().isBadRequest());
+
+        verify(expenseService, never()).updateExpense(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("POST /expense — 100억원 초과 금액은 400")
     void createExpenseRejectsHugeAmount() throws Exception {
         String body = """

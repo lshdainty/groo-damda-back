@@ -5,6 +5,7 @@ import io.groo.damda.common.validation.AmountLimits;
 import io.groo.damda.expense.service.dto.ExpenseServiceDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
+import io.groo.damda.common.validation.InstallmentLimits;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -60,6 +61,7 @@ public class ExpenseApiDto {
         String merchant,
         String paymentMethod,
         /** 할부 개월 (null·1 = 일시불). 신용카드 결제에만 의미. */
+        @Max(value = InstallmentLimits.MAX_MONTHS, message = "할부는 60개월까지 입력할 수 있어요")
         Integer installmentMonths,
         /**
          * <b>폐기된 칸.</b> 환불은 이제 원거래에 찍는 표식이라(`POST /expense/{id}/refund`)
@@ -110,7 +112,7 @@ public class ExpenseApiDto {
         Optional<@Size(max = 100, message = "거래처는 100자까지 입력할 수 있어요") String> merchant,
         Optional<String> paymentMethod,
         /** 할부 개월 (null·1 = 일시불). 신용카드 결제에만 의미. */
-        Optional<Integer> installmentMonths,
+        Optional<@Max(value = InstallmentLimits.MAX_MONTHS, message = "할부는 60개월까지 입력할 수 있어요") Integer> installmentMonths,
         /**
          * <b>폐기된 칸.</b> 환불은 이제 원거래에 찍는 표식이라(`POST /expense/{id}/refund`)
          * 수입 행을 만들지 않는다. 값이 실려 오면 400 {@code EXP_044} 로 <b>눈에 보이게</b>
@@ -465,6 +467,7 @@ public class ExpenseApiDto {
         @Size(max = 100, message = "거래처는 100자까지 입력할 수 있어요")
         String merchant,
         String paymentMethod,
+        @Max(value = InstallmentLimits.MAX_MONTHS, message = "할부는 60개월까지 입력할 수 있어요")
         Integer installmentMonths,
         java.math.BigDecimal originalAmount,
         String originalCurrency,
