@@ -375,6 +375,20 @@ class UserApiControllerTest {
     }
 
     @Test
+    @DisplayName("POST /users/me/reauth/password — purpose=oauth-unlink 면 해제용 티켓을 받는다(보안 점검 S-2 잔여)")
+    void verifyReauthPassword_oauthUnlinkPurpose() throws Exception {
+        given(reauthProxyService.verifyPassword("user1", "pw", ReauthPurpose.OAUTH_UNLINK)).willReturn("unlink-ticket");
+
+        mockMvc.perform(post("/api/v1/users/me/reauth/password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"password":"pw","purpose":"oauth-unlink"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reauthToken").value("unlink-ticket"));
+    }
+
+    @Test
     @DisplayName("POST /users/me/reauth/email-code/verify — 목록에 없는 용도는 400 이고 SSO 까지 안 간다")
     void verifyReauthEmailCode_unknownPurpose_returns400() throws Exception {
         mockMvc.perform(post("/api/v1/users/me/reauth/email-code/verify")
