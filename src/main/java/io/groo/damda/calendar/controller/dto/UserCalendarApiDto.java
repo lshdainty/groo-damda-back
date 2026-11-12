@@ -44,6 +44,8 @@ public class UserCalendarApiDto {
 
     public record JoinRequest(
         @NotBlank(message = "초대 코드를 입력해주세요")
+        // 코드는 32자다. 붙여 넣으며 섞인 공백·하이픈까지 받고, 그보다 긴 입력은 볼 것도 없다.
+        @Size(max = 64, message = "초대 코드가 올바르지 않아요")
         String inviteCode
     ) {}
 

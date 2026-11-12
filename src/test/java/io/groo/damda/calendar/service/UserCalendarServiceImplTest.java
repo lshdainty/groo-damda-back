@@ -1,5 +1,15 @@
 package io.groo.damda.calendar.service;
 
+import static org.mockito.Mockito.verify;
+
+import static org.mockito.Mockito.times;
+
+import static org.mockito.Mockito.never;
+
+import static org.mockito.ArgumentMatchers.any;
+
+import io.groo.core.exception.BusinessRuleViolationException;
+
 import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
@@ -41,6 +51,7 @@ class UserCalendarServiceImplTest {
     @Mock private CalendarEventRepository calendarEventRepository;
     @Mock private UserRepository userRepository;
     @Mock private CalendarMembershipValidator membershipValidator;
+    @Mock private CalendarJoinRateLimiter joinRateLimiter;
 
     @InjectMocks private UserCalendarServiceImpl sut;
 
@@ -103,7 +114,7 @@ class UserCalendarServiceImplTest {
         // 실제 권한 판정을 태운다 — 서비스가 어느 검증을 부르는지가 요점이다.
         UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
                 calendarEventRepository, userRepository,
-                new CalendarMembershipValidator(memberRepository, userCalendarRepository));
+                new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
 
         assertThatThrownBy(() -> real.toggleVisibility(CAL_ID, MEMBER_ID))
                 .isInstanceOf(ForbiddenException.class);
@@ -119,7 +130,7 @@ class UserCalendarServiceImplTest {
         given(memberRepository.findByCalendarAndUser(CAL_ID, MEMBER_ID)).willReturn(Optional.of(editor));
         UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
                 calendarEventRepository, userRepository,
-                new CalendarMembershipValidator(memberRepository, userCalendarRepository));
+                new CalendarMembershipValidator(memberRepository, userCalendarRepository), joinRateLimiter);
 
         assertThat(real.toggleVisibility(CAL_ID, MEMBER_ID).isVisible()).isFalse();
     }
@@ -194,17 +205,88 @@ class UserCalendarServiceImplTest {
                 .isInstanceOf(InvalidValueException.class);
     }
 
+    private static final String CODE = "0123456789ABCDEF0123456789ABCDEF";
+    private static final String IP = "203.0.113.7";
+
     @Test
     @DisplayName("joinByInviteCode — 이미 멤버면 중복 가입 불가")
     void joinRejectsAlreadyMember() {
+        given(joinRateLimiter.isAllowed(USER_ID, IP)).willReturn(true);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
         UserCalendar calendar = mock(UserCalendar.class);
         given(calendar.getRowId()).willReturn(50L);
-        given(userCalendarRepository.findByInviteCode("CODE")).willReturn(Optional.of(calendar));
+        given(userCalendarRepository.findByInviteCode(CODE)).willReturn(Optional.of(calendar));
         UserCalendarMember existing = mock(UserCalendarMember.class);
         given(memberRepository.findByCalendarAndUser(50L, USER_ID)).willReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> sut.joinByInviteCode(USER_ID, "CODE"))
+        assertThatThrownBy(() -> sut.joinByInviteCode(USER_ID, CODE, IP))
                 .isInstanceOf(InvalidValueException.class);
+    }
+
+    @Test
+    @DisplayName("새 캘린더(개인 기본 포함)에는 초대 코드가 없다 — 공유를 켤 때만 발급(보안 점검 DAM-4)")
+    void newCalendarHasNoInviteCode() {
+        assertThat(calendar(true).getInviteCode()).isNull();
+        assertThat(calendar(false).getInviteCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("공유를 켜면 128비트(대문자 16진수 32자) 코드가 나오고, 다시 만들면 바뀐다")
+    void issuedCodeIs128Bit() {
+        UserCalendar cal = calendar(false);
+        given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(cal));
+
+        String first = sut.regenerateInviteCode(CAL_ID, USER_ID);
+        String second = sut.regenerateInviteCode(CAL_ID, USER_ID);
+
+        assertThat(first).matches("[0-9A-F]{32}");
+        assertThat(second).matches("[0-9A-F]{32}").isNotEqualTo(first);
+        verify(membershipValidator, times(2)).validateOwner(CAL_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("공유 끄기 — 소유자만, 코드를 지운다")
+    void stopSharingClearsCode() {
+        UserCalendar cal = calendar(false);
+        cal.issueInviteCode();
+        given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(cal));
+
+        sut.stopSharing(CAL_ID, USER_ID);
+
+        assertThat(cal.getInviteCode()).isNull();
+        verify(membershipValidator).validateOwner(CAL_ID, USER_ID);
+    }
+
+    @Test
+    @DisplayName("틀린 코드는 시도로 센다 — 형식이 틀리면 DB 를 보지 않는다")
+    void wrongCodeIsCounted() {
+        given(joinRateLimiter.isAllowed(USER_ID, IP)).willReturn(true);
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+        assertThatThrownBy(() -> sut.joinByInviteCode(USER_ID, "3F9A1C2B", IP)) // 옛 8자 형식
+                .isInstanceOf(EntityNotFoundException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.USER_CALENDAR_INVITE_INVALID);
+        verify(userCalendarRepository, never()).findByInviteCode(any());
+        verify(joinRateLimiter).recordFailure(USER_ID, IP);
+    }
+
+    @Test
+    @DisplayName("한도를 넘으면 맞는 코드라도 받지 않는다 — 429")
+    void rateLimitedEvenWithCorrectCode() {
+        given(joinRateLimiter.isAllowed(USER_ID, IP)).willReturn(false);
+
+        assertThatThrownBy(() -> sut.joinByInviteCode(USER_ID, CODE, IP))
+                .isInstanceOf(BusinessRuleViolationException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.USER_CALENDAR_JOIN_RATE_LIMITED);
+        verify(userCalendarRepository, never()).findByInviteCode(any());
+        assertThat(DeskErrorCode.USER_CALENDAR_JOIN_RATE_LIMITED.getHttpStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    @DisplayName("붙여 넣은 값의 공백·하이픈·소문자는 정규화한다")
+    void normalizesPastedCode() {
+        assertThat(UserCalendarServiceImpl.normalizeInviteCode(" 01234567-89abcdef 0123456789ABCDEF\n")).isEqualTo(CODE);
+        assertThat(UserCalendarServiceImpl.normalizeInviteCode("XYZ")).isNull();
+        assertThat(UserCalendarServiceImpl.normalizeInviteCode(null)).isNull();
     }
 }

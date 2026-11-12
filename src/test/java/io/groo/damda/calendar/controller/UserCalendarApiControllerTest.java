@@ -172,9 +172,27 @@ class UserCalendarApiControllerTest {
     }
 
     @Test
+    @DisplayName("DELETE /calendar/calendars/{id}/invite-code — 공유 끄기(코드 삭제)")
+    void stopSharing() throws Exception {
+        mockMvc.perform(delete("/api/v1/calendar/calendars/{id}/invite-code", 40L))
+                .andExpect(status().isOk());
+
+        verify(userCalendarService).stopSharing(40L, 1L);
+    }
+
+    @Test
+    @DisplayName("POST /calendar/calendars/join — 64자를 넘는 코드는 볼 것 없이 400")
+    void joinRejectsOversizedCode() throws Exception {
+        mockMvc.perform(post("/api/v1/calendar/calendars/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"" + "A".repeat(65) + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("POST /calendar/calendars/join — 로그인 사용자·초대코드로 참여")
     void joinByInviteCode() throws Exception {
-        given(userCalendarService.joinByInviteCode(eq(1L), eq("INVITE123"))).willReturn(sampleInfo());
+        given(userCalendarService.joinByInviteCode(eq(1L), eq("INVITE123"), any())).willReturn(sampleInfo());
 
         String body = """
                 {"inviteCode":"INVITE123"}
@@ -186,7 +204,7 @@ class UserCalendarApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.rowId").value(40));
 
-        verify(userCalendarService).joinByInviteCode(1L, "INVITE123");
+        verify(userCalendarService).joinByInviteCode(eq(1L), eq("INVITE123"), any());
     }
 
     @Test

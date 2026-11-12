@@ -1,5 +1,8 @@
 package io.groo.damda.calendar.controller;
 
+import io.groo.core.security.web.ClientIpResolver;
+import jakarta.servlet.http.HttpServletRequest;
+
 import io.groo.core.controller.ApiResponse;
 import io.groo.damda.calendar.controller.dto.UserCalendarApiDto;
 import io.groo.damda.calendar.service.UserCalendarService;
@@ -91,12 +94,22 @@ public class UserCalendarApiController {
         return ApiResponse.success(new UserCalendarApiDto.InviteCodeResponse(newCode));
     }
 
+    /** 공유 끄기 — 초대 코드를 지운다. 이미 참여한 멤버는 그대로다. 다시 켜려면 코드를 새로 만든다. */
+    @DeleteMapping("/calendar/calendars/{id}/invite-code")
+    public ApiResponse<Void> stopSharing(
+            @LoginUser UserPrincipal loginUser,
+            @PathVariable Long id) {
+        userCalendarService.stopSharing(id, loginUser.getRowId());
+        return ApiResponse.success();
+    }
+
     @PostMapping("/calendar/calendars/join")
     public ApiResponse<UserCalendarApiDto.Response> joinByInviteCode(
             @LoginUser UserPrincipal loginUser,
-            @Valid @RequestBody UserCalendarApiDto.JoinRequest request) {
-        UserCalendarServiceDto.CalendarInfo info =
-            userCalendarService.joinByInviteCode(loginUser.getRowId(), request.inviteCode());
+            @Valid @RequestBody UserCalendarApiDto.JoinRequest request,
+            HttpServletRequest httpRequest) {
+        UserCalendarServiceDto.CalendarInfo info = userCalendarService.joinByInviteCode(
+            loginUser.getRowId(), request.inviteCode(), ClientIpResolver.resolve(httpRequest));
         return ApiResponse.success(UserCalendarApiDto.Response.from(info));
     }
 

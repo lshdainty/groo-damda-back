@@ -79,6 +79,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     // 문구다 — "삭제할 수 없어요" 로는 무엇을 하다 막혔는지 알 수 없다. 번호는 캘린더 블록이 이미
     // 015 까지 차 있어 016 이다.
     USER_CALENDAR_DEFAULT_HIDE("CAL_016", "error.calendar.default.hide", HttpStatus.BAD_REQUEST),
+    // 초대 코드 참여의 틀린 시도 한도(사용자·IP 별 10분 창, 보안 점검 DAM-4).
+    USER_CALENDAR_JOIN_RATE_LIMITED("CAL_017", "error.user.calendar.join.rate.limited", HttpStatus.TOO_MANY_REQUESTS),
     CALENDAR_ACCESS_DENIED("CAL_007", "error.calendar.access.denied", HttpStatus.FORBIDDEN),
     CALENDAR_EVENT_ACCESS_DENIED("CAL_008", "error.calendar.event.access.denied", HttpStatus.FORBIDDEN),
     EVENT_LABEL_ACCESS_DENIED("CAL_009", "error.event.label.access.denied", HttpStatus.FORBIDDEN),
