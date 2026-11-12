@@ -26,5 +26,9 @@ public interface OAuthLinkService {
     List<ProviderInfoResp> getProviders(String userId);
 
     /** 소셜 계정 연동 해제. */
-    void unlink(String userId, String provider);
+    /**
+     * 연동 해제 — 재인증 티켓(purpose=oauth-link)을 SSO 에 그대로 넘긴다(보안 점검 S-2 잔여).
+     * 연동 시작과 같은 이유로 검증 · 단회 처리는 SSO 가 한다.
+     */
+    void unlink(String userId, String provider, String reauthToken);
 }

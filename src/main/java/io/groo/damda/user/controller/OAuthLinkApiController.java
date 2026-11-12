@@ -59,12 +59,18 @@ public class OAuthLinkApiController {
         return ApiResponse.success(oAuthLinkService.getProviders(loginUser.getUserId()));
     }
 
-    /** 소셜 계정 연동 해제. */
+    /**
+     * 소셜 계정 연동 해제.
+     *
+     * <p>연동 시작과 같이 {@code X-Reauth-Token}(재인증 티켓, purpose=oauth-link)을 그대로 SSO 에 넘긴다
+     * (보안 점검 S-2 잔여). 로그인 토큰 · 쿠키를 잠깐 쥔 사람이 본인의 구글 연결을 끊어 복구 수단을 없애지 못하게 한다.
+     */
     @DeleteMapping("/link/{provider}")
     public ApiResponse<Void> unlink(
             @LoginUser UserPrincipal loginUser,
-            @PathVariable String provider) {
-        oAuthLinkService.unlink(loginUser.getUserId(), provider);
+            @PathVariable String provider,
+            @RequestHeader(value = "X-Reauth-Token", required = false) String reauthToken) {
+        oAuthLinkService.unlink(loginUser.getUserId(), provider, reauthToken);
         return ApiResponse.success();
     }
 }
