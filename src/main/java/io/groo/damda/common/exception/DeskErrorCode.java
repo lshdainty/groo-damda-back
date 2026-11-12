@@ -60,6 +60,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
 
     // OAuth account linking (소셜 계정 연동 프록시)
     OAUTH_LINK_FAILED("OAUTH_001", "error.oauth.link.failed", HttpStatus.BAD_REQUEST),
+    // SSO 가 모르는 소셜 제공자(경로 변수 허용 목록 — 보안 점검 S-2 잔여).
+    OAUTH_PROVIDER_INVALID("OAUTH_002", "error.oauth.provider.invalid", HttpStatus.BAD_REQUEST),
 
     // Todo
     TODO_NOT_FOUND("TODO_001", "error.notfound.todo", HttpStatus.NOT_FOUND),

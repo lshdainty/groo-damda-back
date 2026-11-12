@@ -1,5 +1,9 @@
 package io.groo.damda.user.service;
 
+import java.util.Set;
+
+import java.util.Locale;
+
 import io.groo.core.controller.ApiResponse;
 import io.groo.core.exception.ExternalServiceException;
 import io.groo.core.exception.InvalidValueException;
@@ -46,8 +50,27 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
     @Qualifier("ssoRestTemplate")
     private final RestTemplate ssoRestTemplate;
 
+    /**
+     * SSO 가 아는 소셜 제공자 — SSO {@code ProviderType}(GOOGLE · KAKAO · NAVER)와 짝이다.
+     *
+     * <p>경로 변수 {@code provider} 를 그대로 SSO 주소에 이어 붙이면 {@code ..%2F} · {@code ?x=} 같은 값으로
+     * 서비스 토큰을 든 요청이 SSO 의 다른 경로로 갈 수 있었다(보안 점검 S-2 잔여). 목록에 있는 값만 받는다.
+     * 지금 연결할 수 있는 것은 Google 뿐이지만, 해제는 예전에 연결한 다른 제공자에도 쓰이므로 SSO 목록 전체를 둔다.
+     */
+    static final Set<String> ALLOWED_PROVIDERS = Set.of("google", "kakao", "naver");
+
+    /** 허용 목록에 있으면 SSO 경로 조각(소문자), 없으면 거절. */
+    static String pathSegmentOf(String provider) {
+        String normalized = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
+        if (!ALLOWED_PROVIDERS.contains(normalized)) {
+            throw new InvalidValueException(DeskErrorCode.OAUTH_PROVIDER_INVALID);
+        }
+        return normalized;
+    }
+
     @Override
     public String startLink(String userId, String provider, String returnUrl, String reauthToken) {
+        String segment = pathSegmentOf(provider); // 서비스 토큰을 받기 전에 거른다
         // SSO 호출용 서비스 토큰(RS256)을 client_credentials 그랜트로 발급
         String serviceToken = ssoOAuth2Client.issueServiceToken();
 
@@ -66,7 +89,7 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
 
         try {
             ResponseEntity<ApiResponse<StartUrlResp>> response = ssoRestTemplate.exchange(
-                    SSO_LINK_PATH + provider.toLowerCase(),
+                    SSO_LINK_PATH + segment,
                     HttpMethod.POST,
                     entity,
                     new ParameterizedTypeReference<ApiResponse<StartUrlResp>>() {}
@@ -127,6 +150,7 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
 
     @Override
     public void unlink(String userId, String provider, String reauthToken) {
+        String segment = pathSegmentOf(provider); // 서비스 토큰을 받기 전에 거른다
         String serviceToken = ssoOAuth2Client.issueServiceToken();
 
         HttpHeaders headers = new HttpHeaders();
@@ -142,7 +166,7 @@ public class OAuthLinkServiceImpl implements OAuthLinkService {
 
         try {
             ResponseEntity<ApiResponse<Void>> response = ssoRestTemplate.exchange(
-                    SSO_LINK_PATH + provider.toLowerCase() + "?userId=" + URLEncoder.encode(userId, StandardCharsets.UTF_8),
+                    SSO_LINK_PATH + segment + "?userId=" + URLEncoder.encode(userId, StandardCharsets.UTF_8),
                     HttpMethod.DELETE,
                     entity,
                     new ParameterizedTypeReference<ApiResponse<Void>>() {}
