@@ -34,6 +34,7 @@ import java.util.Map;
 public class SsoOAuth2Client {
 
     private static final String TOKEN_ENDPOINT = "/api/v1/oauth2/token";
+    private static final String REVOKE_ENDPOINT = "/api/v1/oauth2/revoke";
     private static final String DESK_CLIENT_ID = "desk";
     private static final String GRANT_TYPE = "authorization_code";
     private static final String GRANT_TYPE_CLIENT_CREDENTIALS = "client_credentials";
@@ -117,6 +118,35 @@ public class SsoOAuth2Client {
             return null;
         }
         return new TokenPair(envelope.data().accessToken(), envelope.data().refreshToken());
+    }
+
+    /**
+     * SSO /oauth2/revoke 에 refresh token 을 넘겨 <b>그 로그인의 SSO 토큰 계열</b>을 끊는다(보안 점검 CLI-2).
+     *
+     * <p>앱은 시스템 브라우저로 로그인해서 브라우저에 SSO refresh 쿠키가 남는다. 앱에서 로그아웃해도 그 쿠키는
+     * 앱이 지울 수 없어, 잠금 풀린 기기를 쥔 사람이 브라우저로 담다 웹을 열면 비밀번호 없이 들어갔다.
+     * SSO 는 이 토큰과 같은 로그인에서 나온 토큰(브라우저 쿠키 포함)을 함께 끊는다. 다른 기기는 그대로다.
+     *
+     * <p>던지지 않는다 — 로그아웃은 SSO 가 죽어 있어도 끝나야 한다. 결과만 돌려준다.
+     *
+     * @return SSO 가 받아들였으면 true
+     */
+    public boolean revokeRefreshToken(String refreshToken) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("token", refreshToken);
+        body.put("token_type_hint", GRANT_TYPE_REFRESH_TOKEN);
+        body.put("client_id", DESK_CLIENT_ID);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        try {
+            ssoRestTemplate.postForObject(REVOKE_ENDPOINT, new HttpEntity<>(body, headers), TokenEnvelope.class);
+            return true;
+        } catch (Exception e) {
+            log.warn("SSO 로그인 계열 폐기 실패: {}", e.getMessage());
+            return false;
+        }
     }
 
     /**
