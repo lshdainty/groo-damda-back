@@ -25,22 +25,27 @@ configurations {
 }
 
 repositories {
-    mavenLocal()
+    // 내부 라이브러리(io.groo)는 GitHub Packages 에서만 받는다(보안 점검 SUP-4).
+    // 예전에는 mavenCentral · JitPack 을 먼저 뒤져, 누가 공개 저장소에 같은 좌표를 올리면 그 jar 가
+    // 빌드에 들어갈 수 있었다. mavenLocal 은 core 를 배포 전에 로컬로 검증할 때만 쓰고, 역시 io.groo 만 본다.
+    exclusiveContent {
+        forRepositories(mavenLocal(), maven {
+            name = "GitHubPackagesCore"
+            url = uri("https://maven.pkg.github.com/lshdainty/groo-core")
+            credentials {
+                username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") ?: ""
+                password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") ?: ""
+            }
+        })
+        filter { includeGroup 'io.groo' }
+    }
     mavenCentral()
     maven { url 'https://jitpack.io' }
-    maven {
-        name = "GitHubPackagesCore"
-        url = uri("https://maven.pkg.github.com/lshdainty/groo-core")
-        credentials {
-            username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user") ?: ""
-            password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") ?: ""
-        }
-    }
 }
 
 dependencies {
     // ==================== Private Codes (GitHub Packages) ====================
-    implementation 'io.groo:groo-core:3.2.1'
+    implementation 'io.groo:groo-core:3.3.0'
 
     // ==================== Spring Boot Starters ====================
     implementation 'org.springframework.boot:spring-boot-starter-web'
