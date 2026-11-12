@@ -37,6 +37,12 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         }
         SubscriptionPlan plan = planRepository.findByPlanCodeAndIsDeleted(planCode, YNType.N)
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.SUBSCRIPTION_PLAN_NOT_FOUND));
+        // 판매 중지 플랜은 받지 않는다 — 목록(/plans)은 is_active=Y 만 보여 주는데, 여기서는 그 조건 없이 찾아
+        // 목록에 없는 플랜 코드로도 구독이 생겼다(보안 점검 DAM-8). 스스로 켜는 동작 자체는 결제 연동 전 의도라 그대로 둔다.
+        if (plan.getIsActive() != YNType.Y) {
+            log.warn("판매 중지 플랜 구독 시도: userRowId={}, plan={}", userRowId, planCode);
+            throw new InvalidValueException(DeskErrorCode.SUBSCRIPTION_PLAN_NOT_ON_SALE);
+        }
 
         UserSubscription sub = UserSubscription.activate(userRowId, plan, now, true);
         subscriptionRepository.save(sub);

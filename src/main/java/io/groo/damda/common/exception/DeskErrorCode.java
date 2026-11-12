@@ -303,6 +303,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     SUBSCRIPTION_NOT_FOUND("SUBS_002", "error.notfound.subscription", HttpStatus.NOT_FOUND),
     SUBSCRIPTION_PLAN_NOT_FOUND("SUBS_003", "error.notfound.subscription.plan", HttpStatus.NOT_FOUND),
     SUBSCRIPTION_ALREADY_ACTIVE("SUBS_004", "error.subscription.already.active", HttpStatus.CONFLICT),
+    // 판매 중지(is_active=N) 플랜 코드로 구독 — 목록에 없는 플랜(보안 점검 DAM-8).
+    SUBSCRIPTION_PLAN_NOT_ON_SALE("SUBS_005", "error.subscription.plan.not.on.sale", HttpStatus.BAD_REQUEST),
 
     // Data Import (데이터 가져오기)
     IMPORT_EMPTY_FILE("IMPORT_001", "error.import.empty.file", HttpStatus.BAD_REQUEST),
