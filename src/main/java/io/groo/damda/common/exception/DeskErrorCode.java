@@ -317,6 +317,12 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     STOCK_WATCH_ITEM_LIMIT_EXCEEDED("STOCK_005", "error.stock.watch.item.limit", HttpStatus.BAD_REQUEST),
     STOCK_WATCH_GROUP_NAME_DUPLICATE("STOCK_006", "error.duplicate.stock.watch.group.name", HttpStatus.CONFLICT),
 
+    // 데이터 내보내기 — 종전엔 IllegalArgumentException 문구를 그대로 응답에 실었다. core 3.3.0 부터 그
+    // 문구가 고정 문구로 바뀌므로 코드·번들로 옮긴다(화면 문구는 그대로).
+    EXPORT_TYPE_REQUIRED("EXPORT_001", "error.export.type.required", HttpStatus.BAD_REQUEST),
+    EXPORT_PERIOD_DATES_REQUIRED("EXPORT_002", "error.export.period.dates.required", HttpStatus.BAD_REQUEST),
+    EXPORT_INVALID_DATE_RANGE("EXPORT_003", "error.export.invalid.date.range", HttpStatus.BAD_REQUEST),
+
     // SMS (결제 문자 가져오기)
     SMS_NOT_RECOGNIZED("SMS_001", "error.sms.not.recognized", HttpStatus.BAD_REQUEST),
     SMS_CANCEL_NOT_SUPPORTED("SMS_002", "error.sms.cancel.not.supported", HttpStatus.BAD_REQUEST),

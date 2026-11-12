@@ -1,5 +1,7 @@
 package io.groo.damda.export.service;
 
+import io.groo.core.exception.InvalidValueException;
+import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.damda.common.validation.PeriodLimits;
 import io.groo.damda.export.type.ExportPeriod;
 import org.springframework.stereotype.Component;
@@ -32,10 +34,10 @@ public class PeriodResolver {
             case THIS_YEAR -> new DateRange(LocalDate.of(today.getYear(), 1, 1), LocalDate.of(today.getYear(), 12, 31));
             case CUSTOM -> {
                 if (customStart == null || customEnd == null) {
-                    throw new IllegalArgumentException("기간을 직접 고르려면 시작일과 종료일이 필요해요");
+                    throw new InvalidValueException(DeskErrorCode.EXPORT_PERIOD_DATES_REQUIRED);
                 }
                 if (customStart.isAfter(customEnd)) {
-                    throw new IllegalArgumentException("시작일이 종료일보다 늦을 수 없어요");
+                    throw new InvalidValueException(DeskErrorCode.EXPORT_INVALID_DATE_RANGE);
                 }
                 // 직접 고른 기간만 바깥에서 온다 — 0001~9999 같은 폭을 막는다(보안 점검 DAM-2).
                 PeriodLimits.check(customStart, customEnd);

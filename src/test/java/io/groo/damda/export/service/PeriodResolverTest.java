@@ -1,12 +1,15 @@
 package io.groo.damda.export.service;
 
 import io.groo.core.exception.InvalidValueException;
+import io.groo.damda.common.exception.DeskErrorCode;
+import io.groo.damda.support.message.TestMessages;
 import io.groo.damda.export.service.PeriodResolver.DateRange;
 import io.groo.damda.export.type.ExportPeriod;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,5 +77,38 @@ class PeriodResolverTest {
         assertThat(resolver.resolve(ExportPeriod.CUSTOM,
                 LocalDate.of(1926, 1, 1), LocalDate.of(2126, 12, 31), LocalDate.of(2026, 11, 12)))
                 .isEqualTo(new DateRange(LocalDate.of(1926, 1, 1), LocalDate.of(2126, 12, 31)));
+    }
+
+    @Test
+    @DisplayName("직접 기간에 날짜가 빠지면 EXPORT_002 — 문구가 응답에 실리도록 IllegalArgumentException 대신 오류 코드")
+    void customMissingDates() {
+        assertThatThrownBy(() -> resolver.resolve(ExportPeriod.CUSTOM, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 11, 12)))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.EXPORT_PERIOD_DATES_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("직접 기간의 시작이 종료보다 늦으면 EXPORT_003")
+    void customInvertedRange() {
+        assertThatThrownBy(() -> resolver.resolve(ExportPeriod.CUSTOM,
+                LocalDate.of(2026, 2, 1), LocalDate.of(2026, 1, 1), LocalDate.of(2026, 11, 12)))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.EXPORT_INVALID_DATE_RANGE);
+    }
+
+    @Test
+    @DisplayName("한국어 문구는 종전 IllegalArgumentException 문구 그대로다 — 웹·앱 표시가 바뀌지 않는다")
+    void koreanTextUnchanged() {
+        var source = TestMessages.messageSource();
+        Locale ko = Locale.KOREAN;
+        assertThat(source.getMessage(DeskErrorCode.EXPORT_TYPE_REQUIRED.getMessageKey(), null, ko))
+                .isEqualTo("내보낼 데이터 종류를 1개 이상 골라주세요");
+        assertThat(source.getMessage(DeskErrorCode.EXPORT_PERIOD_DATES_REQUIRED.getMessageKey(), null, ko))
+                .isEqualTo("기간을 직접 고르려면 시작일과 종료일이 필요해요");
+        assertThat(source.getMessage(DeskErrorCode.EXPORT_INVALID_DATE_RANGE.getMessageKey(), null, ko))
+                .isEqualTo("시작일이 종료일보다 늦을 수 없어요");
+        // 영어 번들도 키가 있다(없으면 키가 그대로 샌다)
+        assertThat(source.getMessage(DeskErrorCode.EXPORT_TYPE_REQUIRED.getMessageKey(), null, Locale.ENGLISH))
+                .isEqualTo("Choose at least one kind of data to export");
     }
 }

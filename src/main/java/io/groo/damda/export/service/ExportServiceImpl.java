@@ -1,5 +1,8 @@
 package io.groo.damda.export.service;
 
+import io.groo.core.exception.InvalidValueException;
+import io.groo.damda.common.exception.DeskErrorCode;
+
 import io.groo.damda.export.controller.dto.ExportApiDto;
 import io.groo.damda.export.type.ExportFormat;
 import io.groo.damda.export.type.ExportType;
@@ -123,7 +126,7 @@ public class ExportServiceImpl implements ExportService {
     /** 요청 종 dedup + 선언 순서 정렬. 비어있으면 예외. */
     private List<ExportType> orderedTypes(List<ExportType> requested) {
         if (requested == null || requested.isEmpty()) {
-            throw new IllegalArgumentException("내보낼 데이터 종류를 1개 이상 골라주세요");
+            throw new InvalidValueException(DeskErrorCode.EXPORT_TYPE_REQUIRED);
         }
         LinkedHashSet<ExportType> set = new LinkedHashSet<>(requested);
         List<ExportType> ordered = new ArrayList<>();
