@@ -342,12 +342,24 @@ public abstract class AbstractPaymentTextParser implements PaymentTextParser {
         return null;
     }
 
+    /**
+     * 외화 금액 숫자 — 정수부 최대 16자(쉼표 포함, 원화 {@link #AMOUNT} 와 같은 폭), 소수부 최대 4자리.
+     *
+     * <p>종전 {@code [0-9][0-9,]*\\.?[0-9]*} 는 정수부와 소수부가 둘 다 숫자를 끝없이 먹을 수 있어,
+     * 통화 코드가 뒤따르지 않는 긴 숫자열에서 시작점마다 나눌 자리를 전부 다시 시도했다
+     * (숫자 길이의 세제곱 — 2,000자리에 수십 초, 보안 점검 DAM-3). 자릿수를 묶으면 시작점마다
+     * 시도가 상수로 끝난다. 앞뒤 둘레(숫자 안쪽에서 시작·끝나지 않기)는 상한보다 긴 숫자를
+     * 꼬리만 잘라 엉뚱한 금액으로 읽지 않게 한다 — 그런 숫자는 금액이 아니라고 본다.
+     */
+    private static final String FOREIGN_NUMBER =
+        "(?<![0-9,])([0-9][0-9,]{0,15}(?:\\.[0-9]{0,4})?)(?![0-9])";
+
     /** 외화 금액 — 통화 코드 앞뒤 어느 쪽에 붙어도 읽는다. */
     protected BigDecimal findForeignAmount(String text, String currency) {
         String upper = text.toUpperCase(Locale.ROOT);
-        Matcher after = Pattern.compile(currency + "\\s*([0-9][0-9,]*\\.?[0-9]*)").matcher(upper);
+        Matcher after = Pattern.compile(currency + "\\s*" + FOREIGN_NUMBER).matcher(upper);
         if (after.find()) return toDecimal(after.group(1));
-        Matcher before = Pattern.compile("([0-9][0-9,]*\\.?[0-9]*)\\s*" + currency).matcher(upper);
+        Matcher before = Pattern.compile(FOREIGN_NUMBER + "\\s*" + currency).matcher(upper);
         if (before.find()) return toDecimal(before.group(1));
         return null;
     }
