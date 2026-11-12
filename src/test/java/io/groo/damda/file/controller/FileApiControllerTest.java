@@ -31,6 +31,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -131,6 +132,37 @@ class FileApiControllerTest {
                 .andExpect(content().bytes("hello".getBytes()));
 
         verify(fileAttachmentService).getFile(7L, 1L);
+    }
+
+    @Test
+    @DisplayName("GET /files/{id} — SVG 는 내려받기로 보낸다(브라우저에서 바로 열면 스크립트가 이 출처에서 돈다, 보안 점검 DAM-8)")
+    void svgIsDownloadedNotOpened() throws Exception {
+        Path tempFile = Files.createTempFile("porest-file-test", ".svg");
+        Files.write(tempFile, "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".getBytes());
+        tempFile.toFile().deleteOnExit();
+
+        given(fileAttachmentService.getFile(8L, 1L)).willReturn(new FileServiceDto.FileInfo(
+                101L, 1L, "logo.svg", "stored.svg", "/data/stored.svg",
+                "image/svg+xml", 80L, ReferenceType.MEMO_ATTACHMENT.name(), 10L, "2026-07-01T09:00:00"));
+        given(fileStorageService.load(anyString())).willReturn(tempFile);
+
+        mockMvc.perform(get("/api/v1/files/{id}", 8L))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, startsWith("attachment;")))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+    }
+
+    @Test
+    @DisplayName("바로 여는 형식은 래스터 이미지·PDF·텍스트뿐이다 — 매개변수·대소문자는 무시")
+    void inlineAllowList() {
+        assertThat(FileApiController.opensInline("image/png")).isTrue();
+        assertThat(FileApiController.opensInline("IMAGE/JPEG")).isTrue();
+        assertThat(FileApiController.opensInline("application/pdf")).isTrue();
+        assertThat(FileApiController.opensInline("text/plain; charset=UTF-8")).isTrue();
+        assertThat(FileApiController.opensInline("image/svg+xml")).isFalse();
+        assertThat(FileApiController.opensInline("text/csv")).isFalse();
+        assertThat(FileApiController.opensInline("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).isFalse();
+        assertThat(FileApiController.opensInline(null)).isFalse();
     }
 
     @Test
