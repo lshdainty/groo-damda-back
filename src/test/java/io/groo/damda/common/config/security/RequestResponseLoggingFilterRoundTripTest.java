@@ -294,6 +294,36 @@ class RequestResponseLoggingFilterRoundTripTest {
         }
 
         @Test
+        @DisplayName("재인증 이메일 코드(6자리)는 가려진다 — core 는 43자 미만 code 를 남겨서 평문이던 자리(보안 점검 DAM-8)")
+        void reauthEmailCodeIsMasked() throws Exception {
+            String body = "{\"code\":\"482913\",\"purpose\":\"WITHDRAW\"}";
+
+            String received = mockMvc().perform(post("/api/v1/me/reauth/email-code/verify")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+            assertThat(received).isEqualTo(body);
+            String logged = loggedText();
+            assertThat(logged).contains("/api/v1/me/reauth/email-code/verify");
+            assertThat(logged).doesNotContain("482913");
+            assertThat(logged).contains("\"code\":\"***\"");
+            assertThat(logged).contains("WITHDRAW");
+        }
+
+        @Test
+        @DisplayName("다른 경로의 짧은 code 는 그대로 남는다 — 봉투 상태코드·종목 코드는 진단에 필요하다")
+        void shortCodeElsewhereSurvives() throws Exception {
+            mockMvc().perform(post("/echo")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"code\":\"005930\"}"))
+                    .andExpect(status().isOk());
+            // 같은 스레드에서 앞 요청의 표시가 남아 있으면 안 된다
+            assertThat(loggedText()).contains("\"code\":\"005930\"");
+        }
+
+        @Test
         @DisplayName("본문이 잘려 DEBUG 전문이 다시 찍혀도 토큰은 마스킹된 채로 남는다")
         void debugFullBodyIsAlsoMasked() throws Exception {
             // MAX_BODY_LENGTH(500)를 넘겨 DEBUG "Full Request Body" 경로를 태운다.
@@ -418,6 +448,11 @@ class RequestResponseLoggingFilterRoundTripTest {
             return org.springframework.http.ResponseEntity.ok()
                     .contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
                     .body(body);
+        }
+
+        @PostMapping(value = "/api/v1/me/reauth/email-code/verify", produces = "text/plain;charset=UTF-8")
+        String reauthVerify(@RequestBody String body) {
+            return body;
         }
 
         @GetMapping("/actuator/health")
