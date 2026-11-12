@@ -94,6 +94,37 @@ class UserCalendarServiceImplTest {
     }
 
     @Test
+    @DisplayName("toggleVisibility — 읽기 전용 멤버는 바꿀 수 없다(한 값을 모두가 같이 쓰므로 소유자 화면에서도 숨겨지던 자리, 보안 점검 DAM-8)")
+    void toggleRejectsReadOnlyMember() {
+        UserCalendar calendar = calendar(false);
+        UserCalendarMember readOnly = UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.READ);
+        given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
+        given(memberRepository.findByCalendarAndUser(CAL_ID, MEMBER_ID)).willReturn(Optional.of(readOnly));
+        // 실제 권한 판정을 태운다 — 서비스가 어느 검증을 부르는지가 요점이다.
+        UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
+                calendarEventRepository, userRepository,
+                new CalendarMembershipValidator(memberRepository, userCalendarRepository));
+
+        assertThatThrownBy(() -> real.toggleVisibility(CAL_ID, MEMBER_ID))
+                .isInstanceOf(ForbiddenException.class);
+        assertThat(calendar.getIsVisible()).isEqualTo(YNType.Y);
+    }
+
+    @Test
+    @DisplayName("toggleVisibility — 편집 멤버는 종전대로 바꿀 수 있다")
+    void toggleAllowsEditMember() {
+        UserCalendar calendar = calendar(false);
+        UserCalendarMember editor = UserCalendarMember.create(calendar, user(MEMBER_ID), CalendarRole.EDIT);
+        given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
+        given(memberRepository.findByCalendarAndUser(CAL_ID, MEMBER_ID)).willReturn(Optional.of(editor));
+        UserCalendarServiceImpl real = new UserCalendarServiceImpl(userCalendarRepository, memberRepository,
+                calendarEventRepository, userRepository,
+                new CalendarMembershipValidator(memberRepository, userCalendarRepository));
+
+        assertThat(real.toggleVisibility(CAL_ID, MEMBER_ID).isVisible()).isFalse();
+    }
+
+    @Test
     @DisplayName("deleteCalendar — 기본 캘린더는 삭제 불가")
     void deleteRejectsDefaultCalendar() {
         UserCalendar calendar = mock(UserCalendar.class);

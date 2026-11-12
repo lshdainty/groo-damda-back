@@ -27,6 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -57,11 +59,32 @@ public class FileApiController {
 
         // Content-Disposition 헤더 인젝션 방지
         String safeFilename = FileUploadValidator.sanitizeForContentDisposition(info.originalName());
+        String disposition = opensInline(info.contentType()) ? "inline" : "attachment";
 
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(info.contentType()))
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeFilename + "\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename=\"" + safeFilename + "\"")
+            // 브라우저가 내용을 보고 형식을 다시 추측하지 않게 한다 — 텍스트로 올린 파일이 HTML 로 열리는 길을 막는다.
+            .header("X-Content-Type-Options", "nosniff")
             .body(resource);
+    }
+
+    /**
+     * 브라우저에서 바로 열어도 되는 형식 — 스크립트를 실행할 수 없는 것만.
+     *
+     * <p>SVG 는 이미지지만 XML 문서라 {@code <script>} 를 품을 수 있고, 주소창에서 바로 열면 이 API 의
+     * 출처에서 실행된다(보안 점검 DAM-8). 그래서 목록에 없는 형식은 전부 내려받기로 보낸다.
+     * {@code <img>} 로 띄우는 미리보기는 Content-Disposition 과 무관하게 그대로 보인다.
+     */
+    private static final Set<String> INLINE_TYPES = Set.of(
+        "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
+        "application/pdf", "text/plain"
+    );
+
+    static boolean opensInline(String contentType) {
+        if (contentType == null) return false;
+        String base = contentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        return INLINE_TYPES.contains(base);
     }
 
     @GetMapping("/files")
