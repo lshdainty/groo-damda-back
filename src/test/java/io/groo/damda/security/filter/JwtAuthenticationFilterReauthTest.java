@@ -79,6 +79,7 @@ class JwtAuthenticationFilterReauthTest {
         Date issued = new Date(System.currentTimeMillis() - 7_200_000L);
         Date expiry = new Date(System.currentTimeMillis() - 3_600_000L);
         var builder = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
                 .subject("tester")
                 .claim("userName", "테스터")
                 .claim("userEmail", "tester@porest.com")
@@ -168,6 +169,7 @@ class JwtAuthenticationFilterReauthTest {
         SecretKey otherKey = Keys.hmacShaKeyFor(
                 "another-secret-key-long-enough-for-hs256-bbbbbbbbbb".getBytes(StandardCharsets.UTF_8));
         String forged = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
                 .subject("attacker")
                 .id("sid-1")
                 .claim("userRowId", 7L)
@@ -186,6 +188,7 @@ class JwtAuthenticationFilterReauthTest {
     @DisplayName("만료된 임베드 토큰은 재발급하지 않는다 — 단명 컨텍스트가 세션으로 승격되면 안 된다")
     void expiredEmbedToken_skipsReauth() throws Exception {
         String embed = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
                 .subject("tester")
                 .id("sid-1") // jti 가 있어도 typ=embed 면 대상 아님
                 .claim("userRowId", 7L)

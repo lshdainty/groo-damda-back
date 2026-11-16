@@ -3,6 +3,7 @@ package io.groo.damda.security.jwt;
 import io.groo.damda.common.config.properties.JwtProperties;
 import io.groo.damda.security.principal.JwtClaimsPrincipal;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,8 +12,11 @@ import org.junit.jupiter.api.Test;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * JwtTokenProvider — access/embed 토큰 발급·검증 + typ 클레임/isEmbed 검증.
@@ -23,11 +27,12 @@ class JwtTokenProviderTest {
     private static final long ACCESS_EXP_MS = 30 * 60 * 1000L;
 
     private JwtTokenProvider sut;
+    private JwtProperties props;
     private SecretKey signingKey;
 
     @BeforeEach
     void setUp() {
-        JwtProperties props = new JwtProperties();
+        props = new JwtProperties();
         props.setSecret(SECRET);
         props.setAccessTokenExpiration(ACCESS_EXP_MS);
         // 자체 토큰(HMAC) 발급·검증만 테스트하므로 SSO JWKS Locator 는 불필요 → null.
@@ -76,20 +81,104 @@ class JwtTokenProviderTest {
     }
 
     @Test
-    @DisplayName("기존 토큰 호환 — typ 클레임 없는 토큰도 validateAndGetClaims 는 access 로 간주")
-    void legacyTokenWithoutTyp_defaultsToAccess() {
-        // typ 클레임을 일부러 빼고 직접 발급(기존 토큰 모사)
-        String legacyToken = Jwts.builder()
+    @DisplayName("새 토큰은 iss=porest-desk 를 싣는다")
+    void newTokens_carryDeskIssuer() {
+        assertThat(parse(sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1")).getIssuer())
+                .isEqualTo(JwtTokenProvider.DESK_ISSUER);
+        assertThat(parse(sut.createEmbedToken("u1", "User", "u@e.com", 100L, "sid-1")).getIssuer())
+                .isEqualTo(JwtTokenProvider.DESK_ISSUER);
+    }
+
+    /**
+     * N-2 재현 — 이음(HR) 토큰 모양. 이음은 iss=porest-hr, type=hr_access 를 싣고 typ 는 없다.
+     * 두 서비스의 HMAC 시크릿이 같으면 서명이 맞아 예전엔 담다가 access 로 받아들였다.
+     */
+    private String ieumShapedToken(Date exp) {
+        return Jwts.builder()
                 .subject("u1")
-                .claim("userName", "User")
-                .claim("userEmail", "u@e.com")
-                .claim("userRowId", 100L)
+                .issuer("porest-hr")
+                .claim("type", "hr_access")
+                .claim("ssoUserRowId", 100L)
+                .claim("name", "User")
+                .claim("email", "u@e.com")
+                .issuedAt(new Date())
+                .expiration(exp)
                 .signWith(signingKey)
                 .compact();
+    }
 
-        JwtClaimsPrincipal claims = sut.validateAndGetClaims(legacyToken);
-        assertThat(claims.tokenType()).isEqualTo("access");
-        assertThat(claims.isEmbed()).isFalse();
+    @Test
+    @DisplayName("N-2: 같은 키로 서명된 이음 토큰은 거절한다(유효·만료 둘 다)")
+    void foreignServiceToken_rejected() {
+        String live = ieumShapedToken(new Date(System.currentTimeMillis() + 600_000L));
+        assertThat(sut.isTokenValid(live)).isFalse();
+        assertThatThrownBy(() -> sut.validateAndGetClaims(live)).isInstanceOf(JwtException.class);
+
+        String expired = ieumShapedToken(new Date(System.currentTimeMillis() - 60_000L));
+        // 만료 토큰은 무음 재인증으로 가는데, 거기서도 남의 토큰이면 재발급 대상이 아니다
+        assertThat(sut.parseExpiredClaims(expired)).isNull();
+    }
+
+    @Test
+    @DisplayName("N-2: typ 이 access 여도 iss 가 다른 서비스면 거절한다")
+    void otherIssuerWithDeskTyp_rejected() {
+        String token = Jwts.builder()
+                .subject("u1").issuer("porest-hr").claim("typ", "access").claim("userRowId", 100L)
+                .expiration(new Date(System.currentTimeMillis() + 600_000L))
+                .signWith(signingKey).compact();
+        assertThat(sut.isTokenValid(token)).isFalse();
+    }
+
+    @Test
+    @DisplayName("N-2: typ 이 없거나 모르는 값이면 거절한다 — 예전엔 없으면 access 로 봐 줬다")
+    void missingOrUnknownTyp_rejected() {
+        String noTyp = Jwts.builder()
+                .subject("u1").issuer(JwtTokenProvider.DESK_ISSUER).claim("userRowId", 100L)
+                .expiration(new Date(System.currentTimeMillis() + 600_000L))
+                .signWith(signingKey).compact();
+        assertThat(sut.isTokenValid(noTyp)).isFalse();
+
+        String refresh = Jwts.builder()
+                .subject("u1").issuer(JwtTokenProvider.DESK_ISSUER).claim("typ", "refresh")
+                .claim("userRowId", 100L)
+                .expiration(new Date(System.currentTimeMillis() + 600_000L))
+                .signWith(signingKey).compact();
+        assertThat(sut.isTokenValid(refresh)).isFalse();
+    }
+
+    /** 배포 전 이 서버가 발급한 토큰 모양 — typ 은 있고 iss 는 없다. */
+    private String preDeployToken(Date exp) {
+        return Jwts.builder()
+                .subject("u1").id("sid-old")
+                .claim("userName", "User").claim("userEmail", "u@e.com")
+                .claim("userRowId", 100L).claim("typ", "access")
+                .issuedAt(new Date())
+                .expiration(exp)
+                .signWith(signingKey).compact();
+    }
+
+    @Test
+    @DisplayName("전환: 배포 전 토큰(iss 없음)은 유예 기한까지 받는다 — 로그인 유지·무음 재인증 그대로")
+    void issuerlessLegacyToken_acceptedUntilCutoff() {
+        props.setLegacyIssuerlessAcceptedUntil(Instant.now().plusSeconds(3600));
+
+        String live = preDeployToken(new Date(System.currentTimeMillis() + 600_000L));
+        assertThat(sut.isTokenValid(live)).isTrue();
+        assertThat(sut.validateAndGetClaims(live).tokenType()).isEqualTo("access");
+
+        String expired = preDeployToken(new Date(System.currentTimeMillis() - 60_000L));
+        JwtClaimsPrincipal p = sut.parseExpiredClaims(expired);
+        assertThat(p).isNotNull();
+        assertThat(p.sessionId()).isEqualTo("sid-old");
+    }
+
+    @Test
+    @DisplayName("전환: 유예 기한이 지나면 iss 없는 토큰도 거절한다")
+    void issuerlessLegacyToken_rejectedAfterCutoff() {
+        props.setLegacyIssuerlessAcceptedUntil(Instant.now().minusSeconds(1));
+
+        assertThat(sut.isTokenValid(preDeployToken(new Date(System.currentTimeMillis() + 600_000L)))).isFalse();
+        assertThat(sut.parseExpiredClaims(preDeployToken(new Date(System.currentTimeMillis() - 60_000L)))).isNull();
     }
 
     private Claims parse(String token) {
