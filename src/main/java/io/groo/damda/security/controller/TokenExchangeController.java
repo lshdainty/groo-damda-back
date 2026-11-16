@@ -42,9 +42,11 @@ public class TokenExchangeController {
     /**
      * OAuth2 Authorization Code 교환 — 인가코드(code)+PKCE code_verifier 를 SSO 에 교환해
      * 자체 desk JWT 를 발급(httpOnly 쿠키). SSO 로그인 완료 후 desk 세션 진입점.
+     *
+     * <p>토큰은 <b>쿠키로만</b> 준다 — 본문에는 사용자 정보만 싣는다(보안 점검 N-4, {@link TokenExchangeDto.LoginResponse}).
      */
     @PostMapping("/exchange-code")
-    public ApiResponse<TokenExchangeDto.Response> exchangeCode(
+    public ApiResponse<TokenExchangeDto.LoginResponse> exchangeCode(
             @RequestBody TokenExchangeDto.CodeRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse response) {
@@ -52,7 +54,7 @@ public class TokenExchangeController {
                 request.code(), request.codeVerifier(), request.redirectUri(),
                 httpRequest.getHeader(HttpHeaders.USER_AGENT));
         setAccessTokenCookie(response, exchangeResponse.accessToken());
-        return ApiResponse.success(exchangeResponse);
+        return ApiResponse.success(TokenExchangeDto.LoginResponse.from(exchangeResponse));
     }
 
     /**

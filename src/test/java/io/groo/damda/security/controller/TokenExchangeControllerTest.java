@@ -32,6 +32,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,6 +64,33 @@ class TokenExchangeControllerTest {
     @MockitoBean private MessageResolver messageResolver;
     @MockitoBean private UserRepository userRepository;
     @MockitoBean private io.groo.damda.security.session.service.SsoSessionService ssoSessionService;
+
+    @Test
+    @DisplayName("POST /api/v1/auth/exchange-code — 토큰은 HttpOnly 쿠키로만, 본문에는 사용자 정보만(N-4)")
+    void exchangeCode_tokenOnlyInHttpOnlyCookie() throws Exception {
+        given(jwtProperties.getSessionExpiration()).willReturn(604_800_000L);
+        given(tokenExchangeService.exchangeCode(eq("CODE"), eq("VERIFIER"), eq("porestdesk://oauth/callback"), any()))
+                .willReturn(new io.groo.damda.security.controller.dto.TokenExchangeDto.Response(
+                        "DESK_JWT", "user7", "User7", "u7@e.com"));
+
+        String body = mockMvc.perform(post("/api/v1/auth/exchange-code")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"CODE\",\"codeVerifier\":\"VERIFIER\","
+                                + "\"redirectUri\":\"porestdesk://oauth/callback\"}"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(org.springframework.http.HttpHeaders.SET_COOKIE,
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("desk_access_token=DESK_JWT"),
+                                org.hamcrest.Matchers.containsString("HttpOnly"))))
+                .andExpect(jsonPath("$.data.userId").value("user7"))
+                .andExpect(jsonPath("$.data.userName").value("User7"))
+                .andExpect(jsonPath("$.data.userEmail").value("u7@e.com"))
+                .andExpect(jsonPath("$.data.accessToken").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        // 본문 어디에도 토큰 문자열이 없어야 스크립트가 응답을 읽어도 토큰을 못 얻는다
+        org.assertj.core.api.Assertions.assertThat(body).doesNotContain("DESK_JWT");
+    }
 
     @Test
     @DisplayName("POST /api/v1/auth/logout — 이 기기의 SSO 세션도 같이 끊는다")
