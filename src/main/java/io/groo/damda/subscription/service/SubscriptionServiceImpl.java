@@ -1,9 +1,11 @@
 package io.groo.damda.subscription.service;
 
 import io.groo.core.exception.EntityNotFoundException;
+import io.groo.core.exception.ForbiddenException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.core.type.YNType;
 import io.groo.damda.common.exception.DeskErrorCode;
+import io.groo.damda.subscription.config.SubscriptionProperties;
 import io.groo.damda.subscription.domain.SubscriptionPlan;
 import io.groo.damda.subscription.domain.UserSubscription;
 import io.groo.damda.subscription.repository.SubscriptionPlanRepository;
@@ -25,10 +27,17 @@ public class SubscriptionServiceImpl implements SubscriptionService {
 
     private final SubscriptionPlanRepository planRepository;
     private final UserSubscriptionRepository subscriptionRepository;
+    private final SubscriptionProperties properties;
 
     @Override
     @Transactional
     public SubscriptionInfo subscribe(Long userRowId, String planCode) {
+        // 자가 가입이 닫혀 있으면 아무것도 보지 않고 거절한다. 결제 없이 켜지는 진입점이라 화면 버튼만 막으면
+        // 옛 앱·직접 호출로 그대로 열린다 — 막는 자리는 서버다. 일부 사용자는 관리자가 DB 로 켠다.
+        if (!properties.isSelfSignupEnabled()) {
+            log.info("구독 자가 가입 거절(닫힘): userRowId={}, plan={}", userRowId, planCode);
+            throw new ForbiddenException(DeskErrorCode.SUBSCRIPTION_SELF_SIGNUP_CLOSED);
+        }
         LocalDateTime now = LocalDateTime.now();
         // 중복 구독 방지 (앱 레벨). 해지했어도 남은 기간을 쓰는 중이면 아직 구독이 살아 있는 것이라
         // 여기서 막는다 — 통과시키면 기간이 겹치는 행이 둘 생기고, 결제가 붙는 순간 두 번 청구된다.
@@ -82,6 +91,11 @@ public class SubscriptionServiceImpl implements SubscriptionService {
         return subscriptionRepository
             .findFirstByUserRowIdAndIsDeletedOrderByStartedAtDesc(userRowId, YNType.N)
             .map(SubscriptionInfo::from);
+    }
+
+    @Override
+    public boolean isSelfSignupEnabled() {
+        return properties.isSelfSignupEnabled();
     }
 
     @Override

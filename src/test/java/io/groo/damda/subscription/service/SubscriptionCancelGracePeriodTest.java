@@ -4,6 +4,7 @@ import io.groo.core.type.YNType;
 import io.groo.damda.common.config.QueryDslConfig;
 import io.groo.damda.common.config.database.JpaAuditingConfig;
 import io.groo.damda.common.config.database.LoginUserAuditorAware;
+import io.groo.damda.subscription.config.SubscriptionProperties;
 import io.groo.damda.subscription.domain.SubscriptionPlan;
 import io.groo.damda.subscription.domain.UserSubscription;
 import io.groo.damda.subscription.repository.SubscriptionPlanRepository;
@@ -67,7 +68,10 @@ class SubscriptionCancelGracePeriodTest {
         em.persist(plan);
         em.flush();
 
-        subscriptionService = new SubscriptionServiceImpl(planRepository, subscriptionRepository);
+        // 이 테스트는 해지 유예를 본다 — 부여 경로를 쓰려고 자가 가입을 연다(기본은 닫힘).
+        SubscriptionProperties props = new SubscriptionProperties();
+        props.setSelfSignupEnabled(true);
+        subscriptionService = new SubscriptionServiceImpl(planRepository, subscriptionRepository, props);
         entitlementService = new SubscriptionEntitlementServiceImpl(subscriptionRepository);
     }
 

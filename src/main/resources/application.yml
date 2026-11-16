@@ -139,6 +139,12 @@ app:
   # **끄지 마라** — 꺼진 순간 "기동 성공 = 스키마 일치" 가 다시 성립하지 않는다.
   schema-check:
     enabled: ${SCHEMA_CHECK_ENABLED:true}
+  # 구독 자가 가입. 결제(PG) 연동 전이라 화면의 'Pro 시작하기' 가 돈 없이 바로 켠다 — 그래서 기본은 닫힘이다.
+  # 닫혀 있으면 POST /api/v1/subscriptions 를 SUBS_006 으로 거절하고, 웹·앱은 /users/me/features 의
+  # subscriptionSelfSignupEnabled 를 보고 시작 버튼을 막는다. 일부 사용자는 DB(user_subscription)에 행을 넣어 켠다.
+  # 다시 열 때만 env 로 true. 해지(DELETE /me)·조회는 이 값과 무관하다.
+  subscription:
+    self-signup-enabled: ${SUBSCRIPTION_SELF_SIGNUP_ENABLED:false}
   # 비밀값 공용 암호화 키 — 증권사 크리덴셜·SSO refresh token(DB) + 증권사 액세스 토큰 캐시(Redis).
   # Base64 32바이트, env 로만 주입.
   # 미설정이면 로그인은 되지만 SSO 세션이 저장되지 않아 무음 재인증만 조용히 꺼진다.

@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 /**
  * 구독 관리 API. 결제(PG) 없음 — 구독 부여는 self-grant(추후 결제완료가 이 진입점 대체).
  * 게이트 미적용 — 구독을 해야 기능권한이 생기므로 구독 자체는 인증 사용자 누구나 호출.
+ * 단 부여({@code POST})는 자가 가입이 열려 있을 때만 통한다({@code app.subscription.self-signup-enabled},
+ * 기본 닫힘 — 닫혀 있으면 SUBS_006). 해지·조회는 그와 무관하다.
  */
 @RestController
 @RequestMapping("/api/v1/subscriptions")

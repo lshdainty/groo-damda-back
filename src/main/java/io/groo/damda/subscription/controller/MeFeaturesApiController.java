@@ -6,6 +6,7 @@ import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.securities.service.SecuritiesCredentialService;
 import io.groo.damda.securities.type.SecuritiesBroker;
 import io.groo.damda.subscription.service.SubscriptionEntitlementService;
+import io.groo.damda.subscription.service.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,6 +25,7 @@ public class MeFeaturesApiController {
 
     private final SubscriptionEntitlementService entitlementService;
     private final SecuritiesCredentialService credentialService;
+    private final SubscriptionService subscriptionService;
 
     @GetMapping
     public ApiResponse<MeFeaturesResponse> getMyFeatures(@LoginUser UserPrincipal loginUser) {
@@ -38,7 +40,8 @@ public class MeFeaturesApiController {
             .orElse(null);
         return ApiResponse.success(new MeFeaturesResponse(
             features, connectedBrokers, primaryBroker,
-            connectedBrokers.contains(SecuritiesBroker.TOSS.name())));
+            connectedBrokers.contains(SecuritiesBroker.TOSS.name()),
+            subscriptionService.isSelfSignupEnabled()));
     }
 
     /**
@@ -46,12 +49,17 @@ public class MeFeaturesApiController {
      * @param primaryBroker    가계부 자산 평가에 쓰는 증권사. 연결이 없으면 null
      * @param tossConnected    <b>구버전 클라이언트 호환용 파생값.</b> 새 코드는 connectedBrokers 를 봐라.
      *                         지우면 옛 앱이 "미연결" 로 읽어 증권 화면이 연결 유도로 되돌아간다
+     * @param subscriptionSelfSignupEnabled 화면에서 스스로 구독을 시작할 수 있는가. false 면 웹·앱이
+     *                         시작 버튼을 막고 "추후 열릴 예정" 을 말한다. 서버 설정
+     *                         ({@code app.subscription.self-signup-enabled}) 하나로 다시 연다.
+     *                         이 값이 없는 옛 서버 응답은 클라이언트가 닫힘으로 읽는다
      */
     public record MeFeaturesResponse(
         List<String> features,
         List<String> connectedBrokers,
         String primaryBroker,
-        boolean tossConnected
+        boolean tossConnected,
+        boolean subscriptionSelfSignupEnabled
     ) {
     }
 }

@@ -5,6 +5,7 @@ import io.groo.damda.common.config.web.WebConfig;
 import io.groo.damda.security.filter.JwtAuthenticationFilter;
 import io.groo.damda.security.resolver.LoginUserArgumentResolver;
 import io.groo.damda.subscription.service.SubscriptionEntitlementService;
+import io.groo.damda.subscription.service.SubscriptionService;
 import io.groo.damda.support.security.WithLoginUser;
 import io.groo.damda.securities.service.SecuritiesCredentialService;
 import io.groo.damda.securities.service.dto.SecuritiesCredentialServiceDto.BrokerConnection;
@@ -50,6 +51,7 @@ class MeFeaturesApiControllerTest {
     @Autowired private MockMvc mockMvc;
     @MockitoBean private SubscriptionEntitlementService entitlementService;
     @MockitoBean private SecuritiesCredentialService credentialService;
+    @MockitoBean private SubscriptionService subscriptionService;
     // groo-core GlobalExceptionHandler(@ControllerAdvice) 의존 — 슬라이스 로드용 mock.
     @MockitoBean private MessageResolver messageResolver;
 
@@ -109,5 +111,23 @@ class MeFeaturesApiControllerTest {
                 .andExpect(jsonPath("$.data.tossConnected").value(false));
 
         verify(entitlementService).getActiveFeatures(1L);
+    }
+
+    @Test
+    @DisplayName("GET /users/me/features — 자가 가입 여부를 서버 설정대로 내려 준다(닫힘 false · 열림 true)")
+    void getMyFeatures_selfSignupFlag() throws Exception {
+        given(entitlementService.getActiveFeatures(1L)).willReturn(List.of());
+        given(credentialService.getConnections(1L)).willReturn(List.of());
+        given(credentialService.getPrimaryBroker(1L)).willReturn(Optional.empty());
+
+        given(subscriptionService.isSelfSignupEnabled()).willReturn(false);
+        mockMvc.perform(get("/api/v1/users/me/features"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.subscriptionSelfSignupEnabled").value(false));
+
+        given(subscriptionService.isSelfSignupEnabled()).willReturn(true);
+        mockMvc.perform(get("/api/v1/users/me/features"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.subscriptionSelfSignupEnabled").value(true));
     }
 }
