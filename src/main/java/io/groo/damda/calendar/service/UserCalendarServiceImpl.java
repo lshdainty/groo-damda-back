@@ -52,10 +52,11 @@ public class UserCalendarServiceImpl implements UserCalendarService {
         userCalendarRepository.save(calendar);
 
         // 소유자를 OWNER 멤버로 등록 (멤버 조회 단일화 — 소유+공유 모두 멤버 행으로 판정)
-        memberRepository.save(UserCalendarMember.create(calendar, user, CalendarRole.OWNER));
+        UserCalendarMember owner = UserCalendarMember.create(calendar, user, CalendarRole.OWNER);
+        memberRepository.save(owner);
 
         log.info("사용자 캘린더 생성 완료: calendarId={}", calendar.getRowId());
-        return UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.OWNER, 1);
+        return UserCalendarServiceDto.CalendarInfo.from(calendar, owner, 1);
     }
 
     @Override
@@ -67,11 +68,9 @@ public class UserCalendarServiceImpl implements UserCalendarService {
 
         List<UserCalendarServiceDto.CalendarInfo> result = new ArrayList<>();
         for (UserCalendar cal : calendars) {
-            CalendarRole myRole = memberRepository.findByCalendarAndUser(cal.getRowId(), userRowId)
-                .map(UserCalendarMember::getPermission)
-                .orElse(CalendarRole.READ);
+            UserCalendarMember me = memberRepository.findByCalendarAndUser(cal.getRowId(), userRowId).orElse(null);
             int count = memberRepository.findAllByCalendar(cal.getRowId()).size();
-            result.add(UserCalendarServiceDto.CalendarInfo.from(cal, myRole, count));
+            result.add(UserCalendarServiceDto.CalendarInfo.from(cal, me, count));
         }
         return result;
     }
@@ -85,17 +84,17 @@ public class UserCalendarServiceImpl implements UserCalendarService {
         calendar.updateCalendar(command.calendarName(), command.color());
         int count = memberRepository.findAllByCalendar(calendarId).size();
         log.info("사용자 캘린더 수정 완료: calendarId={}", calendarId);
-        return UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.OWNER, count);
+        return UserCalendarServiceDto.CalendarInfo.from(
+            calendar, memberRepository.findByCalendarAndUser(calendarId, userRowId).orElse(null), count);
     }
 
     @Override
     @Transactional
     public UserCalendarServiceDto.CalendarInfo toggleVisibility(Long calendarId, Long userRowId) {
         UserCalendar calendar = findCalendarOrThrow(calendarId);
-        // 표시 여부는 멤버마다가 아니라 <b>캘린더 하나에 한 값</b>이라, 바꾸면 소유자·다른 멤버 화면에서도
-        // 숨겨진다. 그래서 쓰기 권한(소유·편집)이 있어야 바꾼다 — 종전엔 읽기 전용 멤버도 소유자의 화면에서
-        // 캘린더를 숨길 수 있었다(보안 점검 DAM-8).
-        membershipValidator.validateCanWrite(calendarId, userRowId);
+        // 표시 여부는 멤버마다 따로다 — 내 화면만 바뀐다. 그래서 멤버면 누구나(읽기 전용 포함) 바꾼다.
+        // 종전엔 캘린더 하나에 한 값이라 읽기 전용 멤버가 소유자 화면에서도 숨길 수 있었다(보안 점검 DAM-8).
+        UserCalendarMember me = membershipValidator.validateMembership(calendarId, userRowId);
 
         // 기본 캘린더는 숨길 수 없다. 일정을 만들 때 캘린더를 안 고르면 서버가 기본 캘린더를 대입하는데,
         // 그 기본 캘린더까지 숨겨져 있으면 방금 저장한 일정이 곧바로 안 보인다 — 숨긴 캘린더는 목록에서
@@ -105,11 +104,9 @@ public class UserCalendarServiceImpl implements UserCalendarService {
             throw new InvalidValueException(DeskErrorCode.USER_CALENDAR_DEFAULT_HIDE);
         }
 
-        calendar.toggleVisibility();
-        CalendarRole myRole = memberRepository.findByCalendarAndUser(calendarId, userRowId)
-            .map(UserCalendarMember::getPermission).orElse(CalendarRole.READ);
+        me.toggleVisibility();
         int count = memberRepository.findAllByCalendar(calendarId).size();
-        return UserCalendarServiceDto.CalendarInfo.from(calendar, myRole, count);
+        return UserCalendarServiceDto.CalendarInfo.from(calendar, me, count);
     }
 
     @Override
@@ -147,17 +144,19 @@ public class UserCalendarServiceImpl implements UserCalendarService {
 
         return userCalendarRepository.findDefaultByUser(userRowId)
             .map(c -> UserCalendarServiceDto.CalendarInfo.from(
-                c, CalendarRole.OWNER, memberRepository.findAllByCalendar(c.getRowId()).size()))
+                c, memberRepository.findByCalendarAndUser(c.getRowId(), userRowId).orElse(null),
+                memberRepository.findAllByCalendar(c.getRowId()).size()))
             .orElseGet(() -> {
                 User user = userRepository.findById(userRowId)
                     .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_NOT_FOUND));
 
                 UserCalendar defaultCalendar = UserCalendar.createCalendar(user, "내 캘린더", "#2c70bf", 0, true);
                 userCalendarRepository.save(defaultCalendar);
-                memberRepository.save(UserCalendarMember.create(defaultCalendar, user, CalendarRole.OWNER));
+                UserCalendarMember owner = UserCalendarMember.create(defaultCalendar, user, CalendarRole.OWNER);
+                memberRepository.save(owner);
 
                 log.info("기본 캘린더 생성 완료: calendarId={}, userRowId={}", defaultCalendar.getRowId(), userRowId);
-                return UserCalendarServiceDto.CalendarInfo.from(defaultCalendar, CalendarRole.OWNER, 1);
+                return UserCalendarServiceDto.CalendarInfo.from(defaultCalendar, owner, 1);
             });
     }
 
@@ -222,10 +221,11 @@ public class UserCalendarServiceImpl implements UserCalendarService {
             .ifPresent(m -> { throw new InvalidValueException(DeskErrorCode.USER_CALENDAR_ALREADY_MEMBER); });
 
         // 초대코드로 참여 시 기본 편집가능(EDIT). 소유자가 이후 읽기전용(READ)으로 강등 가능.
-        memberRepository.save(UserCalendarMember.create(calendar, user, CalendarRole.EDIT));
+        UserCalendarMember joined = UserCalendarMember.create(calendar, user, CalendarRole.EDIT);
+        memberRepository.save(joined);
         int count = memberRepository.findAllByCalendar(calendar.getRowId()).size();
         log.info("캘린더 공유 참여 완료: calendarId={}, userRowId={}", calendar.getRowId(), userRowId);
-        return UserCalendarServiceDto.CalendarInfo.from(calendar, CalendarRole.EDIT, count);
+        return UserCalendarServiceDto.CalendarInfo.from(calendar, joined, count);
     }
 
     @Override

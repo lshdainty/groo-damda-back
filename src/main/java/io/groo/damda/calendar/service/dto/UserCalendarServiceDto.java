@@ -37,7 +37,11 @@ public class UserCalendarServiceDto {
         LocalDateTime createAt,
         LocalDateTime modifyAt
     ) {
-        public static CalendarInfo from(UserCalendar calendar, CalendarRole myRole, int memberCount) {
+        /**
+         * @param me 요청한 사용자의 멤버 행 — 권한과 <b>내 화면 표시 여부</b>를 여기서 읽는다(표시는 멤버마다 따로다).
+         */
+        public static CalendarInfo from(UserCalendar calendar, UserCalendarMember me, int memberCount) {
+            CalendarRole myRole = me != null ? me.getPermission() : CalendarRole.READ;
             return new CalendarInfo(
                 calendar.getRowId(),
                 calendar.getUser().getRowId(),
@@ -46,10 +50,10 @@ public class UserCalendarServiceDto {
                 calendar.getColor(),
                 calendar.getSortOrder(),
                 calendar.getIsDefault() == YNType.Y,
-                calendar.getIsVisible() == YNType.Y,
+                me == null || me.getIsVisible() != YNType.N,
                 // 초대 코드는 소유자(공유 관리 권한 — CalendarRole.canManageMembers)에게만 내려 준다.
                 // 종전엔 읽기 전용 멤버의 목록 응답에도 실려, 코드를 받은 아무 멤버가 남을 들일 수 있었다(보안 점검 DAM-4 잔여).
-                myRole != null && myRole.canManageMembers() ? calendar.getInviteCode() : null,
+                myRole.canManageMembers() ? calendar.getInviteCode() : null,
                 memberCount > 1,
                 myRole == CalendarRole.OWNER,
                 myRole,
@@ -59,10 +63,6 @@ public class UserCalendarServiceDto {
             );
         }
 
-        /** 생성/수정 등 단일 캘린더 반환 컨텍스트 — 소유자 기준. */
-        public static CalendarInfo from(UserCalendar calendar) {
-            return from(calendar, CalendarRole.OWNER, 1);
-        }
     }
 
     public record MemberInfo(
