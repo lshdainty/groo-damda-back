@@ -57,6 +57,8 @@ public class SsoSessionService {
     private final AesGcmCipher cipher;
     private final JwtProperties jwtProperties;
     private final SessionRevocationStore revocationStore;
+    /** 로그아웃의 SSO 계열 폐기를 요청 스레드 밖에서 부른다(B-6 후속) */
+    private final SsoLoginRevoker ssoLoginRevoker;
 
     /** 재발급의 판정·반영 구간만 짧게 감싼다. SSO 호출은 이 밖에서 한다. */
     private final TransactionTemplate refreshTx;
@@ -79,13 +81,15 @@ public class SsoSessionService {
                              AesGcmCipher cipher,
                              JwtProperties jwtProperties,
                              SessionRevocationStore revocationStore,
-                             PlatformTransactionManager transactionManager) {
+                             PlatformTransactionManager transactionManager,
+                             SsoLoginRevoker ssoLoginRevoker) {
         this.sessionRepository = sessionRepository;
         this.ssoOAuth2Client = ssoOAuth2Client;
         this.cipher = cipher;
         this.jwtProperties = jwtProperties;
         this.revocationStore = revocationStore;
         this.refreshTx = new TransactionTemplate(transactionManager);
+        this.ssoLoginRevoker = ssoLoginRevoker;
     }
 
     /**
@@ -305,36 +309,24 @@ public class SsoSessionService {
      * <p>실패해도 로그아웃은 진행한다 — 담다 세션은 이미 끊었고, SSO 가 잠깐 죽었다고 로그아웃이
      * 에러가 되면 안 된다. 로그만 남긴다.
      */
-    private void revokeSsoLogin(String sessionId, String refreshTokenEnc) {
-        try {
-            if (!ssoOAuth2Client.revokeRefreshToken(cipher.decrypt(refreshTokenEnc))) {
-                log.warn("SSO 로그인 계열 폐기 실패 — 담다 세션만 끊었다. sessionId={}", sessionId);
-            }
-        } catch (Exception e) {
-            log.error("SSO 로그인 계열 폐기 중 오류 — 담다 세션만 끊었다. sessionId={}, err={}",
-                    sessionId, e.getMessage());
-        }
-    }
-
     /**
-     * SSO 계열 폐기를 <b>담다 트랜잭션이 커밋된 뒤</b>에 부른다(감사 지적 B-6).
+     * SSO 계열 폐기를 <b>담다 트랜잭션이 커밋된 뒤</b>, <b>요청 스레드 밖에서</b> 부른다(감사 지적 B-6 · 후속).
      *
-     * <p>예전엔 로그아웃 트랜잭션 안에서 SSO 를 불러, SSO 가 느리면(읽기 타임아웃 10초) 그동안 커넥션과 세션 행 잠금을
-     * 쥐고 있었다. 무음 재인증(DAM-5)이 피한 것과 같은 모양이다. 커밋 뒤에 부르면 SSO 가 느려도 DB 는 묶이지 않고,
-     * 담다 세션 폐기가 롤백되면 SSO 도 끊지 않는다. 필요한 값(세션 id · 암호문)은 지금 읽어 둔다 — 커밋 뒤에는 엔티티를 쓰지 않는다.
-     * 트랜잭션 밖에서 불렸으면 바로 부른다.
+     * <p>트랜잭션 안에서 부르면 SSO 가 느린 동안 커넥션과 세션 행 잠금을 쥔다. afterCommit 에서 직접 불러도 그 콜백은 커넥션
+     * 반납보다 먼저 돌아 커넥션을 쥐고 기다린다. 그래서 커밋 뒤에 {@link SsoLoginRevoker} 에 넘기기만 한다 — 롤백되면 넘기지 않는다.
+     * 필요한 값(세션 id · 암호문)은 지금 읽어 둔다. 트랜잭션 밖에서 불렸으면 바로 넘긴다.
      */
     private void revokeSsoLoginAfterCommit(UserSsoSession session) {
         String sessionId = session.getSessionId();
         String refreshTokenEnc = session.getRefreshTokenEnc();
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            revokeSsoLogin(sessionId, refreshTokenEnc);
+            ssoLoginRevoker.revokeLater(sessionId, refreshTokenEnc);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                revokeSsoLogin(sessionId, refreshTokenEnc);
+                ssoLoginRevoker.revokeLater(sessionId, refreshTokenEnc);
             }
         });
     }
