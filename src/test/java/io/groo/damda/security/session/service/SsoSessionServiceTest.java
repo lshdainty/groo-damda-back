@@ -57,7 +57,8 @@ class SsoSessionServiceTest {
         // 폐기 표식이 실제로 남는지는 SsoSessionServiceRevocationTest 가 본다.
         sut = new SsoSessionService(
                 sessionRepository, ssoOAuth2Client, cipher, props, new InMemorySessionRevocationStore(),
-                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                new SsoLoginRevoker(ssoOAuth2Client, cipher, Runnable::run));
 
         given(cipher.isConfigured()).willReturn(true);
         given(cipher.encrypt(anyString())).willAnswer(inv -> "enc(" + inv.getArgument(0) + ")");

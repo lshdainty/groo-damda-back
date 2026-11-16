@@ -60,7 +60,8 @@ class SsoSessionServiceRevocationTest {
         props.setSessionExpiration(604_800_000L);
         props.setAccessTokenExpiration(ACCESS_EXP_MS);
         sut = new SsoSessionService(sessionRepository, ssoOAuth2Client, cipher, props, revocationStore,
-                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                new SsoLoginRevoker(ssoOAuth2Client, cipher, Runnable::run));
 
         given(cipher.decrypt(anyString())).willAnswer(inv -> inv.getArgument(0));
     }
