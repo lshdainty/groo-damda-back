@@ -32,6 +32,14 @@ pipeline {
         // 비-root 프로세스가 볼륨에 쓸 수 있다 — Dockerfile build-arg 와 chown 에 같은 값을 쓴다.
         APP_UID = "1000"
         APP_GID = "1000"
+        // 컨테이너 메모리 상한(보안 점검 INF-5). 한도가 없으면 JVM 힙 상한이 호스트(16GB)의 25%라 한 서비스가
+        // 새면 호스트 전체가 같이 눌린다. 기본: 운영 1536m · 개발 1024m, swap 도 같은 값(= swap 금지).
+        // Jenkins 전역 변수 BACKEND_MEM_LIMIT_PROD · BACKEND_MEM_LIMIT_DEV 로 덮어쓴다(예: 2048m).
+        MEM_LIMIT_PROD = "${env.BACKEND_MEM_LIMIT_PROD ?: '1536m'}"
+        MEM_LIMIT_DEV = "${env.BACKEND_MEM_LIMIT_DEV ?: '1024m'}"
+        // JVM 옵션 — 힙을 컨테이너 한도의 70%로 잡고, OOM 이면 바로 죽어 --restart 정책으로 다시 뜨게 한다
+        // (OOM 뒤 반쯤 살아 응답 없이 버티는 것을 막는다). 전역 변수 BACKEND_JAVA_TOOL_OPTIONS 로 덮어쓴다.
+        JVM_TOOL_OPTS = "${env.BACKEND_JAVA_TOOL_OPTIONS ?: '-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError'}"
         CONTAINER_NAME = "desk-backend"
     }
     stages {
@@ -41,6 +49,16 @@ pipeline {
                     // 운영은 릴리즈 태그(vX.Y.Z)만 배포할 수 있다. main 등 브랜치는 거부.
                     if (params.DEPLOY_ENV == 'prod' && !(params.GIT_REF ==~ /v\d+\.\d+\.\d+/)) {
                         error "운영 배포는 릴리즈 태그(vX.Y.Z)만 허용됩니다. 선택된 값: ${params.GIT_REF}"
+                    }
+                    // 메모리 · JVM 옵션은 전역 변수로 덮어쓸 수 있어 셸에 들어가기 전에 모양을 본다.
+                    // 셸에는 환경변수("$MEM_LIMIT_*" · "$JVM_TOOL_OPTS")로만 넘긴다(SUP-2 와 같은 방식).
+                    [env.MEM_LIMIT_PROD, env.MEM_LIMIT_DEV].each { v ->
+                        if (!(v ==~ /[0-9]+[kmg]/)) {
+                            error "메모리 상한 형식이 아닙니다(예: 1536m): '${v}'"
+                        }
+                    }
+                    if (!(env.JVM_TOOL_OPTS ==~ /[A-Za-z0-9 =+:.,_%\/-]*/)) {
+                        error "JVM 옵션에 허용되지 않는 문자가 있습니다: '${env.JVM_TOOL_OPTS}'"
                     }
                 }
             }
@@ -113,6 +131,7 @@ pipeline {
                     docker run -d --name ${CONTAINER_NAME}-dev \
                         --hostname ${CONTAINER_NAME}-dev \
                         --restart unless-stopped \
+                        --memory="\$MEM_LIMIT_DEV" --memory-swap="\$MEM_LIMIT_DEV" \
                         --network ${env.DEV_NETWORK} \
                         --env-file ${ENV_FILE_DEV} \
                         -v ${FILE_DIR_DEV}:/app/files \
@@ -123,6 +142,7 @@ pipeline {
                         -e SPRING_PROFILES_ACTIVE=dev \
                         -e LOKI_URL=${env.LOKI_URL} \
                         -e APP_VERSION="\$APP_VERSION" \
+                        -e JAVA_TOOL_OPTIONS="\$JVM_TOOL_OPTS" \
                         ${IMAGE_NAME}:"\$APP_VERSION"
 
                     # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
@@ -168,6 +188,7 @@ pipeline {
                     docker run -d --name ${CONTAINER_NAME}-prod \
                         --hostname ${CONTAINER_NAME}-prod \
                         --restart unless-stopped \
+                        --memory="\$MEM_LIMIT_PROD" --memory-swap="\$MEM_LIMIT_PROD" \
                         --network ${env.PROD_NETWORK} \
                         --env-file ${ENV_FILE_PROD} \
                         -v ${FILE_DIR_PROD}:/app/files \
@@ -178,6 +199,7 @@ pipeline {
                         -e SPRING_PROFILES_ACTIVE=prod \
                         -e LOKI_URL=${env.LOKI_URL} \
                         -e APP_VERSION="\$APP_VERSION" \
+                        -e JAVA_TOOL_OPTIONS="\$JVM_TOOL_OPTS" \
                         ${IMAGE_NAME}:"\$APP_VERSION"
 
                     # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
