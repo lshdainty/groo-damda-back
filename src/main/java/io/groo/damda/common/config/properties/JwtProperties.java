@@ -5,6 +5,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+
 @Getter
 @Setter
 @Component
@@ -30,6 +32,16 @@ public class JwtProperties {
      * 로그인 시각은 세션 행의 {@code create_at}(로그인 때 한 번 쓰고 바뀌지 않는다)이다.
      */
     private long absoluteSessionLifetime = 2_592_000_000L;
+    /**
+     * iss 없는 옛 담다 토큰을 받아 주는 마지막 시각(서버 시각 기준, 보안 점검 N-2 전환 유예).
+     *
+     * <p>iss 검증을 넣은 배포 전에 발급된 토큰은 iss 가 없다. 배포와 동시에 거절하면 로그인해 있던 전원이
+     * 다음 요청에서 로그인 화면으로 간다. 그래서 이 시각까지는 typ 가 맞으면 받아 주고, 그 사이 쓰인 토큰은
+     * 갱신·무음 재인증으로 iss 가 실린 새 토큰으로 바뀐다. 옛 토큰이 살아 있을 수 있는 최대 기간은 세션
+     * 절대 수명(30일)이라, 배포일 + 30일보다 뒤면 된다. 기본값 2026-12-31T15:00:00Z(= 2027-01-01 00:00 KST).
+     * 지나면 아무것도 안 바꿔도 자동으로 거절로 넘어간다. null 이면 유예 없음(즉시 거절).
+     */
+    private Instant legacyIssuerlessAcceptedUntil = Instant.parse("2026-12-31T15:00:00Z");
     /** SSO RS256 토큰 검증용 JWKS URI ({ssoBaseUrl}/.well-known/jwks.json). */
     private String ssoJwksUri;
 }

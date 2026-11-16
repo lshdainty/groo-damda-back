@@ -4,6 +4,7 @@ import io.groo.damda.common.config.properties.JwtProperties;
 import io.groo.damda.security.principal.JwtClaimsPrincipal;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.Locator;
 import io.jsonwebtoken.security.Keys;
@@ -14,7 +15,9 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
+import java.time.Instant;
 import java.util.Date;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -29,6 +32,17 @@ public class JwtTokenProvider {
     public static final long EMBED_TOKEN_EXPIRATION_MS = 60_000L;
 
     /**
+     * 담다 자체 토큰의 발급자(iss). 이음은 {@code porest-hr} 를 쓴다 — 짝을 맞춘 내부 식별자다(화면에 안 보인다).
+     *
+     * <p>서명 키(HMAC)는 서비스마다 다르지만, 키 하나만으로 "담다가 발급했다" 를 믿으면 키가 겹치는 순간
+     * 남의 토큰이 통과한다(보안 점검 N-2). 그래서 서명에 더해 iss 와 typ 를 본다.
+     */
+    public static final String DESK_ISSUER = "porest-desk";
+
+    /** 이 서버가 발급하는 토큰 종류. 이 밖의 typ(또는 typ 없음)는 받지 않는다. */
+    private static final Set<String> DESK_TOKEN_TYPES = Set.of("access", "embed");
+
+    /**
      * 로그인 세션 토큰.
      *
      * <p>{@code sessionId} 는 jti 로 들어가 이 토큰이 어느 기기의 세션인지 가리킨다. 만료된
@@ -41,6 +55,7 @@ public class JwtTokenProvider {
         Date expiry = new Date(now.getTime() + jwtProperties.getAccessTokenExpiration());
 
         return Jwts.builder()
+            .issuer(DESK_ISSUER)
             .subject(userId)
             .id(sessionId)
             .claim("userName", userName)
@@ -73,6 +88,7 @@ public class JwtTokenProvider {
         Date expiry = new Date(now.getTime() + EMBED_TOKEN_EXPIRATION_MS);
 
         return Jwts.builder()
+            .issuer(DESK_ISSUER)
             .subject(userId)
             .id(sessionId)
             .claim("userName", userName)
@@ -92,7 +108,40 @@ public class JwtTokenProvider {
             .parseSignedClaims(token)
             .getPayload();
 
+        requireDeskToken(claims);
         return toPrincipal(claims);
+    }
+
+    /**
+     * 서명이 맞은 토큰이 정말 이 서버가 발급한 것인지 본다(보안 점검 N-2). 아니면 {@link JwtException}.
+     *
+     * <ul>
+     *   <li><b>typ</b> 는 {@code access}·{@code embed} 만 받는다. 없으면 거절 — typ 는 2026-06-23 부터 모든 토큰에
+     *       실렸고, 그 전 토큰은 세션 절대 수명(30일)이 지나 이미 쓸 수 없다. 이음 토큰은 typ 대신
+     *       {@code type=hr_access} 를 싣으므로 여기서 걸린다.</li>
+     *   <li><b>iss</b> 는 {@link #DESK_ISSUER} 여야 한다. 다른 값이면 언제나 거절.
+     *       <b>없으면</b>(이 변경 전에 발급한 토큰) {@code jwt.legacy-issuerless-accepted-until} 까지만 받는다 —
+     *       배포 순간 전원이 로그아웃되지 않게 하는 전환 유예다. 그 사이 쓰인 토큰은 갱신·무음 재인증으로
+     *       iss 가 실린 새 토큰으로 바뀐다. 기한은 토큰 값(iat)이 아니라 <b>서버 시각</b>으로 잰다 —
+     *       토큰 안의 값은 키를 가진 쪽이 마음대로 적을 수 있어 기준이 못 된다.</li>
+     * </ul>
+     */
+    private void requireDeskToken(Claims claims) {
+        String typ = claims.get("typ", String.class);
+        if (typ == null || !DESK_TOKEN_TYPES.contains(typ)) {
+            throw new JwtException("담다 토큰이 아니다(typ=" + typ + ")");
+        }
+        String iss = claims.getIssuer();
+        if (iss == null) {
+            Instant until = jwtProperties.getLegacyIssuerlessAcceptedUntil();
+            if (until == null || !Instant.now().isBefore(until)) {
+                throw new JwtException("iss 없는 옛 토큰 — 전환 유예가 끝났다");
+            }
+            return;
+        }
+        if (!DESK_ISSUER.equals(iss)) {
+            throw new JwtException("담다 토큰이 아니다(iss=" + iss + ")");
+        }
     }
 
     /**
@@ -113,6 +162,13 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token);
             return null; // 아직 안 만료됨 — 이 경로로 올 토큰이 아니다
         } catch (ExpiredJwtException e) {
+            try {
+                requireDeskToken(e.getClaims());
+            } catch (JwtException notOurs) {
+                // 남의 토큰은 만료됐어도 재발급 대상이 아니다 — 무음 재인증이 세션을 찾으러 가지 않게 여기서 끊는다
+                log.warn("JWT token rejected (expired, not a desk token): {}", notOurs.getMessage());
+                return null;
+            }
             return toPrincipal(e.getClaims());
         } catch (Exception e) {
             log.warn("JWT token invalid (not expired): {}", e.getMessage());
@@ -120,14 +176,14 @@ public class JwtTokenProvider {
         }
     }
 
+    /** {@link #requireDeskToken} 을 통과한 claims 만 받는다 — typ 는 access·embed 중 하나다. */
     private JwtClaimsPrincipal toPrincipal(Claims claims) {
-        String typ = claims.get("typ", String.class);
         return new JwtClaimsPrincipal(
             claims.getSubject(),
             claims.get("userName", String.class),
             claims.get("userEmail", String.class),
             claims.get("userRowId", Long.class),
-            typ == null ? "access" : typ, // 기존 토큰 호환(typ 미존재 → access)
+            claims.get("typ", String.class),
             claims.getId() // jti — 세션 도입 前 토큰에는 없다(null)
         );
     }
@@ -159,10 +215,12 @@ public class JwtTokenProvider {
 
     public boolean isTokenValid(String token) {
         try {
-            Jwts.parser()
+            Claims claims = Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
-                .parseSignedClaims(token);
+                .parseSignedClaims(token)
+                .getPayload();
+            requireDeskToken(claims);
             return true;
         } catch (ExpiredJwtException e) {
             log.warn("JWT token expired: {}", e.getMessage());

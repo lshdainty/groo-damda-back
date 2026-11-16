@@ -84,6 +84,7 @@ class JwtAuthenticationFilterRevocationTest {
     /** 아직 안 만료됐지만 남은 수명이 갱신 임계값(10분) 아래인 토큰. */
     private String almostExpiredToken(String sessionId) {
         var builder = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
                 .subject("tester")
                 .claim("userName", "테스터")
                 .claim("userEmail", "tester@porest.com")
@@ -266,6 +267,7 @@ class JwtAuthenticationFilterRevocationTest {
     @DisplayName("만료된 토큰의 무음 재인증 경로는 표식을 보지 않는다 — 세션 행(DB)이 더 강한 근거다")
     void expiredToken_reauthPathDoesNotConsultTheStore() throws Exception {
         String expired = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
                 .subject("tester")
                 .id(SESSION_ID)
                 .claim("userRowId", 7L)

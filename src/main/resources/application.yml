@@ -118,6 +118,9 @@ jwt:
   session-expiration: ${JWT_SESSION_EXPIRATION:604800000}
   # 세션 절대 수명 — 로그인부터 30일이 지나면 사용 중이어도 재발급을 거절해 다시 로그인하게 한다(보안 점검 DAM-5).
   absolute-session-lifetime: ${JWT_ABSOLUTE_SESSION_LIFETIME:2592000000}
+  # iss 없는 옛 토큰(N-2 배포 전 발급분)을 받아 주는 마지막 시각(서버 시각, ISO-8601 UTC). 배포일 + 세션 절대
+  # 수명(30일)보다 뒤면 전원 재로그인 없이 넘어간다. 지나면 자동으로 거절. 배포가 12월 1일보다 늦어지면 env 로 미룬다.
+  legacy-issuerless-accepted-until: ${JWT_LEGACY_ISSUERLESS_UNTIL:2026-12-31T15:00:00Z}
   # SSO RS256 토큰 검증용 JWKS (기본값은 SSO_API_URL 에서 파생)
   sso-jwks-uri: ${SSO_JWKS_URI:${SSO_API_URL}/.well-known/jwks.json}
 
