@@ -5,15 +5,17 @@ import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.InvalidValueException;
 import io.groo.core.type.YNType;
+import io.groo.core.exception.ForbiddenException;
+import io.groo.damda.subscription.config.SubscriptionProperties;
 import io.groo.damda.subscription.domain.SubscriptionPlan;
 import io.groo.damda.subscription.domain.UserSubscription;
 import io.groo.damda.subscription.repository.SubscriptionPlanRepository;
 import io.groo.damda.subscription.repository.UserSubscriptionRepository;
 import io.groo.damda.subscription.type.SubscriptionStatus;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -38,7 +40,15 @@ class SubscriptionServiceImplTest {
 
     @Mock private SubscriptionPlanRepository planRepository;
     @Mock private UserSubscriptionRepository subscriptionRepository;
-    @InjectMocks private SubscriptionServiceImpl sut;
+    private final SubscriptionProperties properties = new SubscriptionProperties();
+    private SubscriptionServiceImpl sut;
+
+    @BeforeEach
+    void setUp() {
+        // 부여 경로 테스트는 자가 가입이 열려 있다고 두고 시작한다. 닫힘은 아래 테스트가 따로 본다.
+        properties.setSelfSignupEnabled(true);
+        sut = new SubscriptionServiceImpl(planRepository, subscriptionRepository, properties);
+    }
 
     private static final long USER = 1L;
 
@@ -49,6 +59,39 @@ class SubscriptionServiceImplTest {
         org.mockito.Mockito.lenient().when(plan.getPlanName()).thenReturn("증권 구독");
         org.mockito.Mockito.lenient().when(plan.getIsActive()).thenReturn(YNType.Y);
         return plan;
+    }
+
+    @Test
+    @DisplayName("설정 기본값은 자가 가입 닫힘이다 — 운영 env 를 안 넣어도 닫혀 있어야 한다")
+    void selfSignup_defaultClosed() {
+        assertThat(new SubscriptionProperties().isSelfSignupEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("자가 가입이 닫혀 있으면 SUBS_006 으로 거절하고 아무것도 저장하지 않는다")
+    void subscribe_closed_rejected() {
+        properties.setSelfSignupEnabled(false);
+
+        assertThatThrownBy(() -> sut.subscribe(USER, "SECURITIES"))
+            .isInstanceOf(ForbiddenException.class)
+            .satisfies(e -> assertThat(((ForbiddenException) e).getErrorCode())
+                .isEqualTo(DeskErrorCode.SUBSCRIPTION_SELF_SIGNUP_CLOSED));
+        assertThat(sut.isSelfSignupEnabled()).isFalse();
+        verify(subscriptionRepository, never()).save(any());
+        verify(planRepository, never()).findByPlanCodeAndIsDeleted(any(), any());
+    }
+
+    @Test
+    @DisplayName("자가 가입이 닫혀 있어도 해지는 그대로 된다")
+    void cancel_worksWhileClosed() {
+        properties.setSelfSignupEnabled(false);
+        UserSubscription active = UserSubscription.activate(USER, plan(1), LocalDateTime.now(), true);
+        given(subscriptionRepository.findEntitled(eq(USER), eq(YNType.N), any()))
+            .willReturn(List.of(active));
+
+        sut.cancel(USER, "test");
+
+        assertThat(active.getStatus()).isEqualTo(SubscriptionStatus.CANCELLED);
     }
 
     @Test

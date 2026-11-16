@@ -13,10 +13,16 @@ import java.util.Optional;
 public interface SubscriptionService {
 
     /**
-     * 구독 부여(결제 없이 즉시 ACTIVE). 이미 권한이 살아 있으면 충돌 —
-     * 해지했어도 남은 기간을 쓰는 중이면 여기에 걸린다.
+     * 구독 부여(결제 없이 즉시 ACTIVE). 자가 가입이 닫혀 있으면 SUBS_006(403).
+     * 이미 권한이 살아 있으면 충돌 — 해지했어도 남은 기간을 쓰는 중이면 여기에 걸린다.
      */
     SubscriptionInfo subscribe(Long userRowId, String planCode);
+
+    /**
+     * 사용자가 스스로 구독을 시작할 수 있는가({@code app.subscription.self-signup-enabled}, 기본 false).
+     * 닫혀 있으면 {@link #subscribe} 가 SUBS_006 으로 거절한다. 화면의 시작 버튼이 이 값을 따른다.
+     */
+    boolean isSelfSignupEnabled();
 
     /** 구독 해지 — 자동갱신만 끄고 남은 기간의 권한은 유지한다. 이미 해지된 구독이면 무동작. */
     void cancel(Long userRowId, String reason);

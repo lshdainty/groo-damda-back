@@ -309,6 +309,8 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     SUBSCRIPTION_ALREADY_ACTIVE("SUBS_004", "error.subscription.already.active", HttpStatus.CONFLICT),
     // 판매 중지(is_active=N) 플랜 코드로 구독 — 목록에 없는 플랜(보안 점검 DAM-8).
     SUBSCRIPTION_PLAN_NOT_ON_SALE("SUBS_005", "error.subscription.plan.not.on.sale", HttpStatus.BAD_REQUEST),
+    // 자가 가입이 닫혀 있다(app.subscription.self-signup-enabled=false). 관리자가 DB 로만 켠다.
+    SUBSCRIPTION_SELF_SIGNUP_CLOSED("SUBS_006", "error.subscription.self.signup.closed", HttpStatus.FORBIDDEN),
 
     // Data Import (데이터 가져오기)
     IMPORT_EMPTY_FILE("IMPORT_001", "error.import.empty.file", HttpStatus.BAD_REQUEST),

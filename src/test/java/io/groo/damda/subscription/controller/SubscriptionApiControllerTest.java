@@ -1,6 +1,8 @@
 package io.groo.damda.subscription.controller;
 
+import io.groo.core.exception.ForbiddenException;
 import io.groo.core.util.MessageResolver;
+import io.groo.damda.common.exception.DeskErrorCode;
 import io.groo.damda.common.config.web.WebConfig;
 import io.groo.damda.security.filter.JwtAuthenticationFilter;
 import io.groo.damda.security.resolver.LoginUserArgumentResolver;
@@ -97,6 +99,19 @@ class SubscriptionApiControllerTest {
                 .andExpect(jsonPath("$.data.durationMonths").value(1));
 
         verify(subscriptionService).subscribe(1L, "SECURITIES");
+    }
+
+    @Test
+    @DisplayName("POST /subscriptions — 자가 가입이 닫혀 있으면 403 SUBS_006")
+    void subscribe_closed_forbidden() throws Exception {
+        given(subscriptionService.subscribe(1L, "SECURITIES"))
+                .willThrow(new ForbiddenException(DeskErrorCode.SUBSCRIPTION_SELF_SIGNUP_CLOSED));
+
+        mockMvc.perform(post("/api/v1/subscriptions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"planCode\":\"SECURITIES\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SUBS_006"));
     }
 
     @Test
