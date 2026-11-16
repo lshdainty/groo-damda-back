@@ -471,6 +471,45 @@ class SsoSessionServiceTest {
     }
 
     @Test
+    @DisplayName("B-6 - 트랜잭션 안의 로그아웃은 SSO 를 커밋 뒤에 부른다 · 롤백되면 부르지 않는다")
+    void revoke_callsSsoAfterCommitOnly() {
+        UserSsoSession session = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(session));
+        given(ssoOAuth2Client.revokeRefreshToken("old-refresh")).willReturn(true);
+
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            sut.revoke(SESSION_ID);
+            // 트랜잭션 안에서는 아직 부르지 않는다 — SSO 가 느려도 커넥션 · 행 잠금을 쥐지 않게
+            verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+            java.util.List<org.springframework.transaction.support.TransactionSynchronization> syncs =
+                    org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(1);
+            syncs.forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(ssoOAuth2Client).revokeRefreshToken("old-refresh");
+
+        // 롤백(afterCommit 이 오지 않음)이면 SSO 도 끊지 않는다
+        org.mockito.Mockito.clearInvocations(ssoOAuth2Client);
+        UserSsoSession other = liveSession();
+        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
+                .willReturn(Optional.of(other));
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            sut.revoke(SESSION_ID);
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(
+                            org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+    }
+
+    @Test
     @DisplayName("SSO 가 폐기를 못 받아도 로그아웃은 끝난다")
     void revoke_ssoFailure_stillLogsOut() {
         UserSsoSession session = liveSession();
