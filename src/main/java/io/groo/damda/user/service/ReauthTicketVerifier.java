@@ -27,7 +27,8 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class ReauthTicketVerifier {
 
-    private static final String USED_PREFIX = "desk:reauth:used:";
+    // 서비스 접두사(damda:)는 여기 쓰지 않는다 — 템플릿(RedisConfig)이 모든 키에 붙인다
+    private static final String USED_PREFIX = "reauth:used:";
     private static final String TYPE_CLAIM = "type";
     private static final String PURPOSE_CLAIM = "purpose";
     private static final String TYPE_REAUTH = "reauth";

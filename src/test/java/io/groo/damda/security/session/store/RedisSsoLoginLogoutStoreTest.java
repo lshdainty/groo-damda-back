@@ -36,7 +36,7 @@ import static org.mockito.Mockito.verify;
 class RedisSsoLoginLogoutStoreTest {
 
     private static final String SSO_SID = "sso-login-1";
-    private static final String KEY = "damda:logged-out-sid:sso-login-1";
+    private static final String KEY = "logged-out-sid:sso-login-1";
 
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOps;

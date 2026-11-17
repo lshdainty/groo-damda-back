@@ -299,7 +299,7 @@ class TokenExchangeServiceTest {
                 withDeadRedis.exchangeCode("authcode", "verifier", "https://desk/auth/callback", "JUnit/1.0");
 
         assertThat(resp.accessToken()).isEqualTo("desk-access");
-        verify(deadRedis).hasKey("damda:logged-out-sid:sso-login-1");
+        verify(deadRedis).hasKey("logged-out-sid:sso-login-1");
     }
 
     private static JwtClaimsPrincipal expiredToken(String ssoSid) {

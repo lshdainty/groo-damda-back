@@ -39,9 +39,10 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class RedisSessionRevocationStore implements SessionRevocationStore {
 
+    // 서비스 접두사(damda:)는 여기 쓰지 않는다 — 템플릿(RedisConfig)이 모든 키에 붙인다
     private static final String KEY_PREFIX = "session:revoked:";
     /** SSO 가 끊은 로그인 번호 — 세션 단위 키와 섞이지 않게 접두사를 나눈다 */
-    private static final String SSO_LOGIN_KEY_PREFIX = "damda:revoked-sso-sid:";
+    private static final String SSO_LOGIN_KEY_PREFIX = "revoked-sso-sid:";
 
     private final StringRedisTemplate redisTemplate;
 

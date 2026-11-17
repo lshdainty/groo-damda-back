@@ -122,7 +122,7 @@ class RedisSessionRevocationStoreTest {
     // ── SSO 가 끊은 로그인(CLI-6) ─────────────────────────────────
 
     private static final String SSO_SID = "sso-login-1";
-    private static final String SSO_KEY = "damda:revoked-sso-sid:sso-login-1";
+    private static final String SSO_KEY = "revoked-sso-sid:sso-login-1";
 
     @Test
     @DisplayName("CLI-6: 끊긴 SSO 로그인은 세션 단위 키와 다른 접두사로 적는다 — 세션 id 와 값 공간이 섞이지 않는다")

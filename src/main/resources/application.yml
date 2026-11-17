@@ -47,6 +47,9 @@ spring:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT}
+      # 서비스 전용 Redis 계정(보안 점검 INF-2 · SSO-13). 담다 계정은 damda:* 키와 SSO 세션 이벤트 구독만 할 수 있다.
+      # 값을 주지 않으면 Redis 기본 계정(default)으로 붙는다 — 계정을 나누지 않은 Redis(로컬 · 테스트)를 위한 기본값이다.
+      username: ${REDIS_USERNAME:default}
       password: ${REDIS_PASSWORD}
       # 기본값을 두지 않는다. 값이 빠지면 기동에서 죽는 게 맞다 — 조용히 다른 DB 로 뜨면
       # 증권사 토큰 캐시가 통째로 안 보이고, 사용자마다 토큰을 새로 발급받는다.
