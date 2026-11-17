@@ -105,7 +105,7 @@ class ReauthTicketVerifierTest {
                     .isInstanceOf(UnauthorizedException.class);
 
             verify(valueOps).setIfAbsent(
-                    eq("desk:reauth:used:jti-1"), anyString(), anyLong(), any(TimeUnit.class));
+                    eq("reauth:used:jti-1"), anyString(), anyLong(), any(TimeUnit.class));
         }
     }
 

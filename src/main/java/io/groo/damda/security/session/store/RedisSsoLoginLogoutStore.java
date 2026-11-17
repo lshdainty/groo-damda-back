@@ -29,7 +29,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class RedisSsoLoginLogoutStore implements SsoLoginLogoutStore {
 
-    private static final String KEY_PREFIX = "damda:logged-out-sid:";
+    // 서비스 접두사(damda:)는 여기 쓰지 않는다 — 템플릿(RedisConfig)이 모든 키에 붙인다
+    private static final String KEY_PREFIX = "logged-out-sid:";
 
     private final StringRedisTemplate redisTemplate;
 

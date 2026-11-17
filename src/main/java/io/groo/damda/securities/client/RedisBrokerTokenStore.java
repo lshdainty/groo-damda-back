@@ -42,6 +42,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class RedisBrokerTokenStore implements BrokerTokenStore {
 
+    // 서비스 접두사(damda:)는 여기 쓰지 않는다 — 템플릿(RedisConfig)이 모든 키에 붙인다
     private static final String KEY_PREFIX = "securities:token:";
 
     private final StringRedisTemplate redisTemplate;
