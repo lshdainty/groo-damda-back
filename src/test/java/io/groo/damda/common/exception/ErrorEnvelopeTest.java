@@ -73,7 +73,7 @@ class ErrorEnvelopeTest {
 
     private String login() {
         return jwtTokenProvider.createAccessToken(
-                "qa-user", "QA", "qa@porest.com", 4242L, UUID.randomUUID().toString());
+                "qa-user", "QA", "qa@porest.com", 4242L, UUID.randomUUID().toString(), null);
     }
 
     private Res call(HttpMethod method, String path, String token, String lang, String body) {

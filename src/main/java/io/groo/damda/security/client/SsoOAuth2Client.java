@@ -24,7 +24,7 @@ import java.util.Map;
  *
  * <p>표준 Authorization Code 흐름에서 클라이언트 백엔드(BFF)가 SSO 의 {@code /oauth2/token} 에
  * 인가코드(code) + PKCE code_verifier 를 교환해 SSO access_token(JWT)을 받아온다.
- * 받아온 SSO 토큰은 기존 {@code exchangeToken} 경로로 검증·자체 desk JWT 발급에 재사용된다.
+ * 받아온 SSO 토큰은 {@code TokenExchangeService} 가 검증해 자체 desk JWT 를 발급하는 데 쓴다.
  *
  * <p>또한 표준 client_credentials 그랜트로 desk→SSO 서비스 토큰(RS256)을 발급한다 —
  * 비밀번호 변경/검증 프록시에서 SSO 를 호출할 때 Bearer 로 사용한다(레거시 HMAC 서비스 토큰 대체).
@@ -123,11 +123,12 @@ public class SsoOAuth2Client {
     /**
      * SSO /oauth2/revoke 에 refresh token 을 넘겨 <b>그 로그인의 SSO 토큰 계열</b>을 끊는다(보안 점검 CLI-2).
      *
-     * <p>앱은 시스템 브라우저로 로그인해서 브라우저에 SSO refresh 쿠키가 남는다. 앱에서 로그아웃해도 그 쿠키는
-     * 앱이 지울 수 없어, 잠금 풀린 기기를 쥔 사람이 브라우저로 담다 웹을 열면 비밀번호 없이 들어갔다.
+     * <p>기기 목록에서 다른 기기를 끊을 때 쓴다. 앱은 시스템 브라우저로 로그인해서 브라우저에 SSO refresh 쿠키가
+     * 남는데, 담다 세션만 끊으면 그 기기를 쥔 사람이 브라우저로 담다 웹을 열어 비밀번호 없이 들어간다.
      * SSO 는 이 토큰과 같은 로그인에서 나온 토큰(브라우저 쿠키 포함)을 함께 끊는다. 다른 기기는 그대로다.
+     * 본인이 누르는 로그아웃은 부르지 않는다 — 담다만 로그아웃하고 SSO 로그인은 둔다(보안 점검 CLI-6).
      *
-     * <p>던지지 않는다 — 로그아웃은 SSO 가 죽어 있어도 끝나야 한다. 결과만 돌려준다.
+     * <p>던지지 않는다 — 기기를 끊는 일은 SSO 가 죽어 있어도 끝나야 한다. 결과만 돌려준다.
      *
      * @return SSO 가 받아들였으면 true
      */

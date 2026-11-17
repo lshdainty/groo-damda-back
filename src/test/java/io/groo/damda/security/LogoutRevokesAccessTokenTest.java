@@ -41,7 +41,7 @@ class LogoutRevokesAccessTokenTest {
     /** 로그인 한 번 = 기기 한 대. 컨텍스트가 테스트 클래스 사이에 공유되므로 세션 id 를 매번 새로 뽑는다. */
     private String loginOnSomeDevice() {
         String sessionId = UUID.randomUUID().toString();
-        return jwtTokenProvider.createAccessToken("qa-user", "QA", "qa@porest.com", 4242L, sessionId);
+        return jwtTokenProvider.createAccessToken("qa-user", "QA", "qa@porest.com", 4242L, sessionId, null);
     }
 
     private int get(String path, String token) {

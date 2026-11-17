@@ -100,7 +100,7 @@ class ApiTokenAccessTest {
 
     private String login(User user) {
         return jwtTokenProvider.createAccessToken(user.getUserId(), user.getUserName(), user.getUserEmail(),
-            user.getRowId(), UUID.randomUUID().toString());
+            user.getRowId(), UUID.randomUUID().toString(), null);
     }
 
     private record Res(int status, String body) {}

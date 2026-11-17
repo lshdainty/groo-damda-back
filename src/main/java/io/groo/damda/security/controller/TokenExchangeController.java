@@ -11,6 +11,7 @@ import io.groo.damda.security.principal.JwtUserPrincipal;
 import io.groo.damda.security.principal.UserPrincipal;
 import io.groo.damda.security.service.TokenExchangeService;
 import io.groo.damda.security.session.service.SsoSessionService;
+import io.groo.damda.security.session.store.SsoLoginLogoutStore;
 import io.groo.damda.user.domain.User;
 import io.groo.damda.user.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,6 +37,7 @@ public class TokenExchangeController {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
     private final SsoSessionService ssoSessionService;
+    private final SsoLoginLogoutStore ssoLoginLogoutStore;
 
     public static final String ACCESS_TOKEN_COOKIE = "desk_access_token";
 
@@ -58,17 +60,29 @@ public class TokenExchangeController {
     }
 
     /**
-     * 로그아웃 — 쿠키를 지우고 이 기기의 SSO 세션도 끊는다.
+     * 로그아웃 — <b>담다만</b> 로그아웃한다. 쿠키를 지우고 이 기기의 담다 세션(저장해 둔 SSO refresh 포함)을 끊는다.
      *
      * <p>세션을 남겨 두면 refresh token 이 최대 7일 더 살아 있다. 로그아웃한 사용자의 재발급
      * 수단이 서버에 남는 셈이라 반드시 같이 끊는다. 다른 기기 세션은 건드리지 않는다.
+     *
+     * <p><b>그루 계정(SSO) 로그인은 끊지 않는다</b>(보안 점검 CLI-6, 사용자 결정) — 서비스에서 로그아웃하면
+     * 그 서비스만 끝난다. 예전엔 SSO 에 알려 그 로그인 계열을 통째로 폐기해서, 담다에서 로그아웃하면 같은
+     * 브라우저의 이음까지 끊겼다. 대신 이 세션을 만든 SSO 로그인을 기억해 두고, 같은 로그인으로 돌아오는
+     * 교환을 거절한다({@code AUTH_030}) — SSO 로그인이 살아 있어도 비밀번호 없이는 담다에 다시 못 들어온다.
+     * 기억하지 못해도(Redis 장애) 로그아웃은 끝난다.
      */
     @PostMapping("/logout")
     public ApiResponse<Void> logout(HttpServletResponse response) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof JwtUserPrincipal principal
-                && principal.getSessionId() != null) {
-            ssoSessionService.revoke(principal.getSessionId());
+        if (authentication != null && authentication.getPrincipal() instanceof JwtUserPrincipal principal) {
+            if (principal.getSessionId() != null) {
+                ssoSessionService.revoke(principal.getSessionId());
+            }
+            // 세션을 끊은 뒤에 기억한다 — 끊다가 실패했는데 기록만 남으면, 살아 있는 세션을 두고 새 로그인만 막힌다.
+            // sso_sid 가 없는 토큰(SSO 가 sid 를 싣기 전 로그인)은 기억할 것이 없다.
+            if (principal.getClaims().hasSsoSid()) {
+                ssoLoginLogoutStore.markLoggedOut(principal.getSsoSid());
+            }
         }
         clearAccessTokenCookie(response);
         return ApiResponse.success(null);

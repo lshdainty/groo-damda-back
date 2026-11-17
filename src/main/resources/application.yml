@@ -158,6 +158,8 @@ app:
   # 즉시 막는다. 인스턴스가 여럿이면 반드시 redis 다 — memory 로 두면 로그아웃을 받은
   # 인스턴스만 알고 나머지는 그 토큰을 계속 통과시켜, 로그아웃이 "가끔 먹는" 기능이 된다.
   # 테스트만 memory 로 내린다(Redis 를 띄우지 않는다).
+  # "담다에서 로그아웃한 SSO 로그인" 목록(SsoLoginLogoutStore, 90일)도 같은 자리를 따른다 — memory 로 두면
+  # 재시작 한 번에 기록이 사라져, 로그아웃한 SSO 로그인이 비밀번호 없이 다시 들어온다.
   session-revocation:
     store: ${SESSION_REVOCATION_STORE:redis}
   # 증권사 연동 공통. 인증정보는 서버 공용 키가 아니라 사용자가 등록한 본인 키(암호화 저장)를 쓴다.

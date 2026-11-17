@@ -39,7 +39,7 @@ class ApiRoutingErrorTest {
 
     private String login() {
         return jwtTokenProvider.createAccessToken(
-                "qa-user", "QA", "qa@porest.com", 4242L, UUID.randomUUID().toString());
+                "qa-user", "QA", "qa@porest.com", 4242L, UUID.randomUUID().toString(), null);
     }
 
     private Res post(String path, String token) {

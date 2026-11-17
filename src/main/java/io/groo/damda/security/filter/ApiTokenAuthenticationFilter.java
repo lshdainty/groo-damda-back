@@ -135,7 +135,7 @@ public class ApiTokenAuthenticationFilter extends OncePerRequestFilter {
 
     private void authenticate(Caller caller) {
         JwtClaimsPrincipal claims = new JwtClaimsPrincipal(caller.userId(), caller.userName(),
-            caller.userEmail(), caller.userRowId(), TOKEN_TYPE, null);
+            caller.userEmail(), caller.userRowId(), TOKEN_TYPE, null, null);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
             new JwtUserPrincipal(claims), null, Collections.emptyList()));
     }

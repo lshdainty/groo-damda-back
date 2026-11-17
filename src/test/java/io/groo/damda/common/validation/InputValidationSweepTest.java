@@ -84,7 +84,7 @@ class InputValidationSweepTest {
                 ExpenseCategory.createCategory(user, "식비" + id, "utensils", "#2c70bf", ExpenseType.EXPENSE, null)));
         categoryRowId = category.getRowId();
         token = jwtTokenProvider.createAccessToken(id, "테스터", id + "@porest.com",
-                user.getRowId(), UUID.randomUUID().toString());
+                user.getRowId(), UUID.randomUUID().toString(), null);
     }
 
     private record Res(int status, String body) {}

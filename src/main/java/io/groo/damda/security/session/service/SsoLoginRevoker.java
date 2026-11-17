@@ -8,10 +8,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 /**
- * 로그아웃 때 SSO 로그인 계열 폐기(/oauth2/revoke)를 <b>요청 스레드 밖에서</b> 부른다(감사 지적 B-6 후속).
+ * 기기 목록에서 기기를 끊을 때 그 기기의 SSO 로그인 계열 폐기(/oauth2/revoke)를 <b>요청 스레드 밖에서</b>
+ * 부른다(감사 지적 B-6 후속). 본인이 누르는 로그아웃은 SSO 로그인을 끊지 않으므로 여기를 타지 않는다(보안 점검 CLI-6).
  *
  * <p>커밋 뒤({@code afterCommit})에 부르는 것만으로는 모자랐다 — afterCommit 콜백은 커넥션을 돌려주는
- * {@code cleanupAfterCompletion} 보다 먼저 돌아, SSO 가 느리면(읽기 타임아웃 10초) 로그아웃 요청마다 커넥션을 하나씩
+ * {@code cleanupAfterCompletion} 보다 먼저 돌아, SSO 가 느리면(읽기 타임아웃 10초) 요청마다 커넥션을 하나씩
  * 쥐고 기다렸다. 여기서는 작업을 넘기기만 하고 바로 돌아온다.
  *
  * <p>전역 {@code @EnableAsync} 를 켜지 않고 이 용도 전용의 작은 풀을 둔다 — 담다에는 아직 비동기 작업이 없어, 전역으로
