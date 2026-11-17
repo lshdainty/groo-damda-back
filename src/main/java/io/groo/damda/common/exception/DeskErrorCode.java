@@ -238,9 +238,6 @@ public enum DeskErrorCode implements ErrorCodeProvider {
 
     // Card
     CARD_CATALOG_NOT_FOUND("CARD_001", "error.notfound.card.catalog", HttpStatus.NOT_FOUND),
-    CARD_BENEFIT_MAPPING_NOT_FOUND("CARD_002", "error.notfound.card.benefit.mapping", HttpStatus.NOT_FOUND),
-    CARD_BENEFIT_MAPPING_ACCESS_DENIED("CARD_003", "error.card.benefit.mapping.access.denied", HttpStatus.FORBIDDEN),
-    CARD_BENEFIT_MAPPING_DUPLICATE("CARD_004", "error.duplicate.card.benefit.mapping", HttpStatus.CONFLICT),
     CARD_BILLING_NOT_CREDIT_CARD("CARD_005", "error.card.billing.not.credit.card", HttpStatus.BAD_REQUEST),
     CARD_BILLING_PAYMENT_ASSET_REQUIRED("CARD_006", "error.card.billing.payment.asset.required", HttpStatus.BAD_REQUEST),
     CARD_BILLING_INSUFFICIENT_BALANCE("CARD_007", "error.card.billing.insufficient.balance", HttpStatus.BAD_REQUEST),

@@ -6,5 +6,4 @@ import java.util.List;
 
 public interface CardCatalogBenefitRepository {
     List<CardCatalogBenefit> findAllByCardCatalog(Long cardCatalogRowId);
-    List<CardCatalogBenefit> findBenefitsByCardAndCategories(Long cardCatalogRowId, List<String> categories);
 }

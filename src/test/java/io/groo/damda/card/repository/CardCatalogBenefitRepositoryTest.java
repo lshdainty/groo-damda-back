@@ -95,36 +95,4 @@ class CardCatalogBenefitRepositoryTest {
         assertThat(result).extracting(CardCatalogBenefit::getTitle)
                 .containsExactly("혜택A", "혜택B", "주의");
     }
-
-    @Test
-    @DisplayName("findBenefitsByCardAndCategories 는 카테고리가 비어있으면 빈 목록을 반환한다")
-    void findBenefitsByCardAndCategoriesEmpty() {
-        CardCatalog catalog = persistCatalog("카드A");
-        persistBenefit(catalog, CardBenefitKind.BENEFIT, "식당", "혜택", 0);
-        em.flush();
-        em.clear();
-
-        assertThat(repository.findBenefitsByCardAndCategories(catalog.getRowId(), List.of())).isEmpty();
-        assertThat(repository.findBenefitsByCardAndCategories(catalog.getRowId(), null)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("findBenefitsByCardAndCategories 는 BENEFIT 종류 중 지정 카테고리만 sortOrder 순으로 반환한다")
-    void findBenefitsByCardAndCategoriesFilters() {
-        CardCatalog catalog = persistCatalog("카드A");
-        CardCatalog other = persistCatalog("카드B");
-        persistBenefit(catalog, CardBenefitKind.BENEFIT, "식당", "식당B", 1);
-        persistBenefit(catalog, CardBenefitKind.BENEFIT, "식당", "식당A", 0);
-        persistBenefit(catalog, CardBenefitKind.BENEFIT, "카페", "카페", 0);   // 카테고리 불일치 → 제외
-        persistBenefit(catalog, CardBenefitKind.CAUTION, "식당", "주의", 0);   // kind 불일치 → 제외
-        persistBenefit(other, CardBenefitKind.BENEFIT, "식당", "타인", 0);     // 다른 카드 → 제외
-        em.flush();
-        em.clear();
-
-        List<CardCatalogBenefit> result =
-                repository.findBenefitsByCardAndCategories(catalog.getRowId(), List.of("식당"));
-
-        assertThat(result).extracting(CardCatalogBenefit::getTitle)
-                .containsExactly("식당A", "식당B");
-    }
 }
