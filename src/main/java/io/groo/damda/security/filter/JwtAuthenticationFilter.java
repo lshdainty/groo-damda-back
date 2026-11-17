@@ -199,7 +199,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      * jti 를 그대로 실으므로 부모가 로그아웃하면 같이 막힌다.
      */
     private boolean isRevokedSession(JwtClaimsPrincipal claims) {
-        return claims.hasSession() && sessionRevocationStore.isRevoked(claims.sessionId());
+        return (claims.hasSession() && sessionRevocationStore.isRevoked(claims.sessionId()))
+            // SSO 가 끊은 로그인(그루 계정 로그아웃 · 기기 끊기 · 관리자 세션 종료)에서 나온 토큰도 막는다
+            // (보안 점검 CLI-6). 세션 행에는 SSO 로그인 번호가 없어 행으로는 못 찾는다 — 토큰의 sso_sid 로 대조한다.
+            || (claims.hasSsoSid() && sessionRevocationStore.isSsoLoginRevoked(claims.ssoSid()));
     }
 
     private void authenticate(JwtClaimsPrincipal claims) {

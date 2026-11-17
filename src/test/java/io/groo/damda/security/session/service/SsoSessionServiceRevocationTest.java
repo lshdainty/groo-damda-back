@@ -190,4 +190,25 @@ class SsoSessionServiceRevocationTest {
 
         verify(revocationStore, never()).revoke(anyString(), anyLong());
     }
+
+    @Test
+    @DisplayName("CLI-6: SSO 가 끊은 로그인은 하루 동안 표식으로 남긴다 — 그 번호를 실은 access token 이 전부 만료될 때까지")
+    void revokeSsoLogin_marksTheSsoLogin() {
+        sut.revokeSsoLogin("sso-login-1");
+
+        verify(revocationStore).revokeSsoLogin("sso-login-1", SsoSessionService.SSO_LOGIN_REVOCATION_SECONDS);
+        org.assertj.core.api.Assertions.assertThat(SsoSessionService.SSO_LOGIN_REVOCATION_SECONDS)
+                .isGreaterThanOrEqualTo(TTL_SECONDS);
+        // 세션 행은 건드리지 않는다 — 행에 SSO 로그인 번호가 없어 어느 행인지 모른다
+        verify(sessionRepository, never()).findBySessionIdAndIsDeleted(anyString(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("CLI-6: 끊긴 SSO 로그인인지는 표식 저장소에 묻는다")
+    void isSsoLoginRevoked_asksTheStore() {
+        org.mockito.BDDMockito.given(revocationStore.isSsoLoginRevoked("sso-login-1")).willReturn(true);
+
+        org.assertj.core.api.Assertions.assertThat(sut.isSsoLoginRevoked("sso-login-1")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(sut.isSsoLoginRevoked("sso-login-2")).isFalse();
+    }
 }

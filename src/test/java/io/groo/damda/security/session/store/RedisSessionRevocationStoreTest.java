@@ -118,4 +118,54 @@ class RedisSessionRevocationStoreTest {
         then(redisTemplate).should(never()).hasKey(anyString());
         then(valueOps).shouldHaveNoInteractions();
     }
+
+    // ── SSO 가 끊은 로그인(CLI-6) ─────────────────────────────────
+
+    private static final String SSO_SID = "sso-login-1";
+    private static final String SSO_KEY = "damda:revoked-sso-sid:sso-login-1";
+
+    @Test
+    @DisplayName("CLI-6: 끊긴 SSO 로그인은 세션 단위 키와 다른 접두사로 적는다 — 세션 id 와 값 공간이 섞이지 않는다")
+    void writesSsoLoginKeyWithTtl() {
+        sut.revokeSsoLogin(SSO_SID, 86_400L);
+
+        verify(valueOps).set(SSO_KEY, "1", Duration.ofSeconds(86_400L));
+    }
+
+    @Test
+    @DisplayName("CLI-6: 번호가 없거나 수명이 0 이하면 적지 않는다")
+    void ssoLoginBlankOrNoTtl_notWritten() {
+        sut.revokeSsoLogin(null, 60L);
+        sut.revokeSsoLogin(" ", 60L);
+        sut.revokeSsoLogin(SSO_SID, 0L);
+
+        verify(valueOps, org.mockito.Mockito.never()).set(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("CLI-6: 키가 있으면 끊긴 로그인, 없거나 번호가 없으면 통과")
+    void readsSsoLoginKey() {
+        given(redisTemplate.hasKey(SSO_KEY)).willReturn(true);
+
+        assertThat(sut.isSsoLoginRevoked(SSO_SID)).isTrue();
+        assertThat(sut.isSsoLoginRevoked("sso-login-2")).isFalse();
+        assertThat(sut.isSsoLoginRevoked(null)).isFalse();
+        assertThat(sut.isSsoLoginRevoked(" ")).isFalse();
+        // 같은 글자의 세션 id 는 다른 키다
+        assertThat(sut.isRevoked(SSO_SID)).isFalse();
+    }
+
+    @Test
+    @DisplayName("CLI-6: Redis 가 죽으면 조회는 통과(fail-open), 쓰기는 예외를 올리지 않는다")
+    void ssoLoginFailsOpen() {
+        willThrow(new RedisConnectionFailureException("down")).given(redisTemplate).hasKey(SSO_KEY);
+        assertThat(sut.isSsoLoginRevoked(SSO_SID)).isFalse();
+
+        willThrow(new RedisConnectionFailureException("down")).given(valueOps)
+                .set(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(Duration.class));
+        org.assertj.core.api.Assertions.assertThatCode(() -> sut.revokeSsoLogin(SSO_SID, 60L))
+                .doesNotThrowAnyException();
+    }
 }

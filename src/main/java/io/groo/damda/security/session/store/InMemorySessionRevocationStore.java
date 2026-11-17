@@ -67,6 +67,22 @@ public class InMemorySessionRevocationStore implements SessionRevocationStore {
         return true;
     }
 
+    // SSO 로그인 번호는 세션 id 와 다른 값 공간이다 — 같은 맵에 접두사를 붙여 둔다(수명 처리는 같다)
+    private static final String SSO_LOGIN_PREFIX = "sso-login:";
+
+    @Override
+    public void revokeSsoLogin(String ssoSid, long ttlSeconds) {
+        if (ssoSid == null || ssoSid.isBlank()) {
+            return;
+        }
+        revoke(SSO_LOGIN_PREFIX + ssoSid, ttlSeconds);
+    }
+
+    @Override
+    public boolean isSsoLoginRevoked(String ssoSid) {
+        return ssoSid != null && !ssoSid.isBlank() && isRevoked(SSO_LOGIN_PREFIX + ssoSid);
+    }
+
     /** ttl 이 아무리 커도 오버플로로 과거가 되지 않게 막는다. */
     private long expiresAt(long ttlSeconds) {
         long ttlMillis = ttlSeconds > (Long.MAX_VALUE / 1000L) ? Long.MAX_VALUE : ttlSeconds * 1000L;

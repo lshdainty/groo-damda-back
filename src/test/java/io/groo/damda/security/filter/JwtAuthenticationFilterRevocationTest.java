@@ -282,4 +282,64 @@ class JwtAuthenticationFilterRevocationTest {
         // 폐기된 세션이면 SsoSessionService.refresh 가 살아 있는 행을 못 찾아 거절한다.
         verify(tokenExchangeService).reauthenticate(any());
     }
+
+    // ── SSO 가 끊은 로그인(CLI-6) — 그루 계정 로그아웃 · 기기 끊기 · 관리자 세션 종료 ─────────────
+
+    private String tokenOfSsoLogin(String ssoSid) {
+        return jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID, ssoSid);
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 가 끊은 로그인에서 나온 토큰은 인증되지 않는다 — 세션 행이 살아 있어도 즉시 401")
+    void tokenOfRevokedSsoLogin_isNotAuthenticated() throws Exception {
+        given(revocationStore.isSsoLoginRevoked("sso-login-1")).willReturn(true);
+
+        run(tokenOfSsoLogin("sso-login-1"));
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("CLI-6: 다른 SSO 로그인(다른 기기)의 토큰은 그대로 인증된다")
+    void tokenOfOtherSsoLogin_isAuthenticated() throws Exception {
+        given(revocationStore.isSsoLoginRevoked("sso-login-1")).willReturn(true);
+
+        run(tokenOfSsoLogin("sso-login-2"));
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 로그인 번호가 없는 옛 토큰은 그 표식을 조회하지 않는다 — 대조할 값이 없다")
+    void tokenWithoutSsoSid_skipsSsoLoginLookup() throws Exception {
+        run(tokenOfSsoLogin(null));
+
+        verify(revocationStore, never()).isSsoLoginRevoked(any());
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 가 끊은 로그인의 토큰은 만료 직전이어도 갱신하지 않는다")
+    void tokenOfRevokedSsoLogin_isNotRenewed() throws Exception {
+        given(revocationStore.isSsoLoginRevoked("sso-login-1")).willReturn(true);
+        String almostExpired = Jwts.builder()
+                .issuer(io.groo.damda.security.jwt.JwtTokenProvider.DESK_ISSUER)
+                .subject("tester")
+                .id(SESSION_ID)
+                .claim("userName", "테스터")
+                .claim("userEmail", "tester@porest.com")
+                .claim("userRowId", 7L)
+                .claim("typ", "access")
+                .claim("sso_sid", "sso-login-1")
+                .issuedAt(new Date(System.currentTimeMillis() - 3_300_000L))
+                .expiration(new Date(System.currentTimeMillis() + 300_000L))
+                .signWith(signingKey)
+                .compact();
+
+        MockHttpServletResponse response = run(almostExpired);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        assertThat(response.getHeaders("Set-Cookie")).isEmpty();
+        verify(tokenExchangeService, never()).reauthenticate(any());
+    }
 }
