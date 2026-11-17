@@ -8,8 +8,11 @@ import java.math.BigDecimal;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -87,6 +90,31 @@ public abstract class AbstractPaymentTextParser implements PaymentTextParser {
     /** 가맹점으로 보면 안 되는 줄 — 카드사·사람 이름·상태어만 있는 줄. */
     protected static final List<String> MERCHANT_NOISE_TOKENS =
         List.of("승인", "취소", "일시불", "체크", "신용", "결제", "님", "web발신", "[web발신]");
+
+    /**
+     * 가맹점 판정에서 지워 볼 말 — 카드사 별칭 전부 + 상태어 + "카드".
+     *
+     * <p>"신한카드 승인" 처럼 카드사와 상태어가 한 줄에 같이 오면, 줄 전체가 어느 한 말과
+     * 같지 않아 예전 판정(완전 일치)을 빠져나가 거래처로 들어갔다. 이 말들을 다 지우고도
+     * 글자가 남는 줄만 가맹점으로 본다. "카드" 는 "케이뱅크 체크카드 승인" 처럼 별칭과
+     * 떨어져 오는 경우의 잔여물이다.
+     *
+     * <p><b>긴 것부터</b> 지운다 — "KB국민" 을 먼저 지우면 "KB국민카드" 가 "카드" 로 남는
+     * 식의 부분 일치 잔여물이 생긴다. 소문자로 맞춰 둔다(별칭에 "KB"·"citi" 가 섞여 있다).
+     */
+    protected static final List<String> MERCHANT_JUDGE_STRIP_WORDS = buildJudgeStripWords();
+
+    private static List<String> buildJudgeStripWords() {
+        Set<String> words = new LinkedHashSet<>();
+        for (SmsCardIssuer issuer : SmsCardIssuer.values()) {
+            for (String alias : issuer.aliases()) words.add(alias.toLowerCase(Locale.ROOT));
+        }
+        for (String token : MERCHANT_NOISE_TOKENS) words.add(token.toLowerCase(Locale.ROOT));
+        words.add("카드");
+        return words.stream()
+            .sorted(Comparator.comparingInt(String::length).reversed())
+            .toList();
+    }
 
     @Override
     public int priority() {
@@ -321,16 +349,24 @@ public abstract class AbstractPaymentTextParser implements PaymentTextParser {
         if (TIME_IN_LINE.matcher(line).find()) return null;
         if (CARD_NO_IN_LINE.matcher(line).find()) return null;
 
-        String lower = line.toLowerCase(Locale.ROOT);
-        boolean onlyNoise = MERCHANT_NOISE_TOKENS.stream().anyMatch(lower::equals);
-        if (onlyNoise) return null;
-        // 카드사 이름만 있는 줄도 가맹점이 아니다.
-        for (SmsCardIssuer issuer : SmsCardIssuer.values()) {
-            for (String alias : issuer.aliases()) {
-                if (lower.equals(alias.toLowerCase(Locale.ROOT))) return null;
-            }
-        }
+        // 카드사·상태어로만 된 줄("신한카드", "승인", "신한카드 승인")은 가맹점이 아니다.
+        // 판정에만 쓰고, 돌려주는 값은 원래 줄 그대로다.
+        if (isIssuerOrStatusOnly(line)) return null;
         return line.length() > 100 ? line.substring(0, 100) : line;
+    }
+
+    /**
+     * 카드사 이름·상태어·"카드" 를 지우고 나면 한글·영문 글자가 하나도 안 남는가.
+     *
+     * <p>지운 자리는 공백으로 채운다 — 빈 문자열로 붙이면 앞뒤 조각이 이어져 다른 말이
+     * 새로 생길 수 있다. 숫자·괄호·기호는 글자로 치지 않으므로 "신한카드(1234) 승인" 도 걸린다.
+     */
+    protected boolean isIssuerOrStatusOnly(String line) {
+        String rest = line.toLowerCase(Locale.ROOT);
+        for (String word : MERCHANT_JUDGE_STRIP_WORDS) {
+            rest = rest.replace(word, " ");
+        }
+        return !rest.matches("(?s).*[가-힣a-z].*");
     }
 
     /** 외화 통화 코드 — 본문에 코드가 그대로 박히는 포맷만 인정한다. */

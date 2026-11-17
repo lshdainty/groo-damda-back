@@ -396,6 +396,88 @@ class SmsParserTest {
     }
 
     @Nested
+    @DisplayName("카드사 + 상태어 줄은 거래처가 아니다")
+    class IssuerStatusLine {
+
+        @Test
+        @DisplayName("'신한카드 승인' 이 따로 한 줄이면 거래처를 비운다")
+        void issuerAndStatusLine() {
+            // 줄 전체가 "승인" 이나 "신한카드" 와 완전히 같지 않아 예전 판정을 빠져나가
+            // 거래처 = "신한카드 승인" 으로 들어갔다.
+            String sms = """
+                신한카드 승인
+                12,000원""";
+
+            SmsParsed p = SmsParser.parse(sms, TODAY);
+
+            assertThat(p.matched()).isTrue();
+            assertThat(p.issuer()).isEqualTo(SmsCardIssuer.SHINHAN);
+            assertThat(p.amount()).isEqualTo(12_000L);
+            assertThat(p.merchant()).isNull();
+        }
+
+        @Test
+        @DisplayName("[Web발신] 머리가 붙어도 같다")
+        void withWebPrefix() {
+            String sms = """
+                [Web발신]
+                신한카드 승인
+                12,000원""";
+
+            SmsParsed p = SmsParser.parse(sms, TODAY);
+
+            assertThat(p.matched()).isTrue();
+            assertThat(p.merchant()).isNull();
+        }
+
+        @Test
+        @DisplayName("다른 카드사 + 상태어 조합도 거래처가 아니다")
+        void otherIssuersAndStatuses() {
+            assertThat(SmsParser.parse("KB국민카드 결제\n33,000원", TODAY).merchant()).isNull();
+            assertThat(SmsParser.parse("삼성카드 체크 승인\n8,000원", TODAY).merchant()).isNull();
+            assertThat(SmsParser.parse("현대카드 승인취소\n8,000원", TODAY).merchant()).isNull();
+        }
+
+        @Test
+        @DisplayName("은행 앱 알림의 '케이뱅크 체크카드 승인' 줄도 거래처가 아니다")
+        void bankIssuerStatusLine() {
+            SmsParsed p = SmsParser.parse("케이뱅크 체크카드 승인\n4,000원", TODAY);
+
+            assertThat(p.matched()).isTrue();
+            assertThat(p.issuer()).isEqualTo(SmsCardIssuer.KBANK);
+            assertThat(p.merchant()).isNull();
+        }
+
+        @Test
+        @DisplayName("실제 가맹점 줄은 그대로 나온다 — 카드사 줄 뒤에 와도")
+        void realMerchantStillParsed() {
+            String sms = """
+                신한카드 승인
+                12,000원
+                08/13 19:05
+                김밥천국""";
+
+            SmsParsed p = SmsParser.parse(sms, TODAY);
+
+            assertThat(p.merchant()).isEqualTo("김밥천국");
+            assertThat(p.confidence()).isEqualTo(SmsConfidence.HIGH);
+        }
+
+        @Test
+        @DisplayName("가맹점 이름에 카드사 별칭이 섞여 있어도 지우지 않는다")
+        void merchantContainingIssuerAlias() {
+            // "현대"·"롯데"·"하나" 는 카드사 별칭이지만 가맹점 이름의 일부이기도 하다.
+            // 지운 뒤 글자가 남으므로 가맹점으로 인정하고, 값은 원래 줄 그대로 돌려준다.
+            assertThat(SmsParser.parse("현대카드 승인\n9,000원\n현대백화점", TODAY).merchant())
+                .isEqualTo("현대백화점");
+            assertThat(SmsParser.parse("삼성카드 승인\n7,000원\n08/13 12:00\n롯데리아 강남점", TODAY).merchant())
+                .isEqualTo("롯데리아 강남점");
+            assertThat(SmsParser.parse("하나카드 결제\n15,000원\n하나로마트", TODAY).merchant())
+                .isEqualTo("하나로마트");
+        }
+    }
+
+    @Nested
     @DisplayName("결제 문자가 아닌 입력")
     class NotPayment {
 
