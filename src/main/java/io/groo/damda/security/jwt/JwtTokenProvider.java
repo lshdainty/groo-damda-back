@@ -4,6 +4,7 @@ import io.groo.damda.common.config.properties.JwtProperties;
 import io.groo.damda.security.principal.JwtClaimsPrincipal;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.Locator;
@@ -43,25 +44,39 @@ public class JwtTokenProvider {
     private static final Set<String> DESK_TOKEN_TYPES = Set.of("access", "embed");
 
     /**
+     * 이 세션을 만든 SSO 로그인 번호를 싣는 클레임 — SSO access token 의 {@code sid} 를 그대로 옮긴 값이다.
+     * 로그아웃할 때 이 값을 "담다에서 로그아웃한 SSO 로그인" 으로 기억한다(보안 점검 CLI-6).
+     */
+    private static final String SSO_SID_CLAIM = "sso_sid";
+
+    /**
      * 로그인 세션 토큰.
      *
      * <p>{@code sessionId} 는 jti 로 들어가 이 토큰이 어느 기기의 세션인지 가리킨다. 만료된
      * 토큰에서도 읽히므로(서명은 그대로 검증된다) 만료 후 조용히 재발급할 때 세션을 찾는
      * 열쇠가 된다. 재발급하더라도 같은 값을 유지해야 세션이 이어진다.
+     *
+     * <p>{@code ssoSid} 는 이 세션을 만든 SSO 로그인 번호다({@link #SSO_SID_CLAIM}). 있을 때만 싣는다 —
+     * SSO 가 sid 를 싣기 전에 발급한 토큰에서 온 세션이면 {@code null} 이다. 재발급 때도 그대로 넘겨야
+     * 로그아웃이 어느 SSO 로그인을 기억할지 안다.
      */
     public String createAccessToken(String userId, String userName, String userEmail, Long userRowId,
-                                    String sessionId) {
+                                    String sessionId, String ssoSid) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + jwtProperties.getAccessTokenExpiration());
 
-        return Jwts.builder()
+        JwtBuilder builder = Jwts.builder()
             .issuer(DESK_ISSUER)
             .subject(userId)
             .id(sessionId)
             .claim("userName", userName)
             .claim("userEmail", userEmail)
             .claim("userRowId", userRowId)
-            .claim("typ", "access")
+            .claim("typ", "access");
+        if (ssoSid != null && !ssoSid.isBlank()) {
+            builder.claim(SSO_SID_CLAIM, ssoSid);
+        }
+        return builder
             .issuedAt(now)
             .expiration(expiry)
             .signWith(getSigningKey())
@@ -184,7 +199,8 @@ public class JwtTokenProvider {
             claims.get("userEmail", String.class),
             claims.get("userRowId", Long.class),
             claims.get("typ", String.class),
-            claims.getId() // jti — 세션 도입 前 토큰에는 없다(null)
+            claims.getId(), // jti — 세션 도입 前 토큰에는 없다(null)
+            claims.get(SSO_SID_CLAIM, String.class) // SSO 로그인 번호 — 없는 토큰이 있다(null)
         );
     }
 

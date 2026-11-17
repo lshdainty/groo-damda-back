@@ -49,6 +49,7 @@ app:
     token-store: memory
   session-revocation:
     # 같은 이유 — 로그아웃 폐기 표식도 프로세스 메모리로 고정한다.
+    # "담다에서 로그아웃한 SSO 로그인" 목록(SsoLoginLogoutStore)도 이 값을 따른다.
     store: memory
   session-events:
     # 같은 이유로 SSO 세션 이벤트 구독도 끈다. 리스너 컨테이너는 시작할 때 Redis 에

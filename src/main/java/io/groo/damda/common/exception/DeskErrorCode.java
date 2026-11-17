@@ -39,6 +39,11 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     AUTH_EXPIRED_TOKEN("AUTH_002", "error.auth.expired.token", HttpStatus.UNAUTHORIZED),
     AUTH_ACCESS_DENIED("AUTH_003", "error.auth.access.denied", HttpStatus.FORBIDDEN),
     AUTH_EXCHANGE_FAILED("AUTH_004", "error.auth.exchange.failed", HttpStatus.UNAUTHORIZED),
+    // 담다에서 로그아웃한 SSO 로그인으로 다시 들어오려 한 것(보안 점검 CLI-6). 로그아웃은 담다 세션만 끝내고
+    // 그루 계정(SSO) 로그인은 그대로 두므로, SSO 는 비밀번호 없이 인가코드를 다시 내준다 — 그 교환을 거절한다.
+    // 웹과 앱이 이 코드 값으로 "비밀번호를 다시 묻는 로그인으로 보내라" 를 가린다. 값을 바꾸지 마라.
+    // 본인 확인(AUTH_020)과는 다른 기능이라 코드를 따로 둔다.
+    SSO_LOGIN_LOGGED_OUT("AUTH_030", "error.auth.sso.login.logged.out", HttpStatus.UNAUTHORIZED),
 
     // User
     USER_NOT_FOUND("USER_001", "error.notfound.user", HttpStatus.NOT_FOUND),

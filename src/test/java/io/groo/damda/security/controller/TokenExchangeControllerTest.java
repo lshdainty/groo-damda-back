@@ -64,6 +64,7 @@ class TokenExchangeControllerTest {
     @MockitoBean private MessageResolver messageResolver;
     @MockitoBean private UserRepository userRepository;
     @MockitoBean private io.groo.damda.security.session.service.SsoSessionService ssoSessionService;
+    @MockitoBean private io.groo.damda.security.session.store.SsoLoginLogoutStore ssoLoginLogoutStore;
 
     @Test
     @DisplayName("POST /api/v1/auth/exchange-code — 토큰은 HttpOnly 쿠키로만, 본문에는 사용자 정보만(N-4)")
@@ -93,7 +94,24 @@ class TokenExchangeControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/auth/logout — 이 기기의 SSO 세션도 같이 끊는다")
+    @DisplayName("POST /api/v1/auth/exchange-code — 담다에서 로그아웃한 SSO 로그인이면 401 AUTH_030, 쿠키를 주지 않는다(CLI-6)")
+    void exchangeCode_loggedOutSsoLogin_401WithCode() throws Exception {
+        given(tokenExchangeService.exchangeCode(any(), any(), any(), any()))
+                .willThrow(new io.groo.core.exception.UnauthorizedException(
+                        io.groo.damda.common.exception.DeskErrorCode.SSO_LOGIN_LOGGED_OUT));
+
+        mockMvc.perform(post("/api/v1/auth/exchange-code")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"CODE\",\"codeVerifier\":\"VERIFIER\","
+                                + "\"redirectUri\":\"porestdesk://oauth/callback\"}"))
+                .andExpect(status().isUnauthorized())
+                // 웹과 앱이 이 값으로 "비밀번호를 다시 묻는 로그인으로 보내라" 를 가린다
+                .andExpect(jsonPath("$.code").value("AUTH_030"))
+                .andExpect(header().doesNotExist(org.springframework.http.HttpHeaders.SET_COOKIE));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/logout — 이 기기의 담다 세션(저장해 둔 SSO refresh)을 끊는다")
     void logout_revokesSsoSession() throws Exception {
         given(jwtProperties.getSessionExpiration()).willReturn(604_800_000L);
 
@@ -102,6 +120,40 @@ class TokenExchangeControllerTest {
 
         // 세션이 남으면 로그아웃한 사용자의 refresh token 이 최대 7일 더 살아 재발급 수단이 된다
         verify(ssoSessionService).revoke("test-session");
+    }
+
+    /** SSO 로그인 번호가 실린 토큰으로 들어온 사용자 — @WithLoginUser 의 기본 주체에는 sso_sid 가 없다. */
+    private void loginWithSsoSid(String ssoSid) {
+        JwtUserPrincipal principal = new JwtUserPrincipal(new JwtClaimsPrincipal(
+                "user7", "User7", "u7@e.com", 7L, "access", "test-session", ssoSid));
+        TestSecurityContextHolder.setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, Collections.emptyList()));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/logout — 이 토큰의 SSO 로그인을 '담다에서 로그아웃함' 으로 기억한다(CLI-6)")
+    void logout_remembersSsoLogin() throws Exception {
+        loginWithSsoSid("sso-login-1");
+
+        mockMvc.perform(post("/api/v1/auth/logout"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(org.springframework.http.HttpHeaders.SET_COOKIE,
+                        org.hamcrest.Matchers.containsString("Max-Age=0")));
+
+        // 세션을 끊은 뒤에 기억한다 — 순서가 뒤집히면 끊다 실패했을 때 기록만 남는다
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(ssoSessionService, ssoLoginLogoutStore);
+        order.verify(ssoSessionService).revoke("test-session");
+        order.verify(ssoLoginLogoutStore).markLoggedOut("sso-login-1");
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/auth/logout — sso_sid 가 없는 옛 토큰은 기억할 것이 없다. 로그아웃은 그대로 된다(CLI-6)")
+    void logout_withoutSsoSid_recordsNothing() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/logout"))
+                .andExpect(status().isOk());
+
+        verify(ssoSessionService).revoke("test-session");
+        org.mockito.Mockito.verifyNoInteractions(ssoLoginLogoutStore);
     }
 
     @Test
@@ -123,7 +175,7 @@ class TokenExchangeControllerTest {
     @DisplayName("POST /api/v1/auth/embed-token — 임베드 토큰으로는 403, 새 토큰을 내주지 않는다(60초마다 스스로 연장되던 구멍)")
     void issueEmbedToken_rejectsEmbedPrincipal() throws Exception {
         JwtUserPrincipal embed = new JwtUserPrincipal(new JwtClaimsPrincipal(
-                "user7", "User7", "u7@e.com", 7L, "embed", "test-session"));
+                "user7", "User7", "u7@e.com", 7L, "embed", "test-session", null));
         TestSecurityContextHolder.setAuthentication(
                 new UsernamePasswordAuthenticationToken(embed, null, Collections.emptyList()));
 

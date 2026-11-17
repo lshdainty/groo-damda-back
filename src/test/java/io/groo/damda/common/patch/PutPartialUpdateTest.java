@@ -69,7 +69,7 @@ class PutPartialUpdateTest {
         String id = "u" + UUID.randomUUID().toString().substring(0, 8);
         User user = tx.execute(s -> userRepository.save(User.createUser(null, id, "테스터", id + "@porest.com")));
         token = jwtTokenProvider.createAccessToken(id, "테스터", id + "@porest.com",
-                user.getRowId(), UUID.randomUUID().toString());
+                user.getRowId(), UUID.randomUUID().toString(), null);
     }
 
     private record Res(int status, String body) {}

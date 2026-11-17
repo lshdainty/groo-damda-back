@@ -454,26 +454,39 @@ class SsoSessionServiceTest {
         sut.revoke(SESSION_ID); // 예외 없음
     }
 
-    // ── SSO 로그인 계열 폐기 (보안 점검 CLI-2) ─────────────────────────────
+    // ── 로그아웃은 SSO 로그인을 끊지 않는다 (보안 점검 CLI-6) ───────────────
+    //
+    // 예전엔(보안 점검 CLI-2) 로그아웃이 SSO 에 그 로그인 계열의 폐기를 요청해, 담다에서 로그아웃하면 같은
+    // 브라우저의 이음까지 끊겼다. 사용자 결정으로 되돌렸다 — 서비스에서 로그아웃하면 그 서비스만 끝난다.
 
     @Test
-    @DisplayName("로그아웃하면 손에 든 SSO refresh 로 그 로그인의 SSO 계열도 끊는다 — 브라우저 쿠키까지")
-    void revoke_revokesSsoLoginFamily() {
+    @DisplayName("CLI-6: 로그아웃은 담다 세션만 끊는다 — SSO 에 계열 폐기를 요청하지 않는다(커밋 뒤로 미뤄서도)")
+    void revoke_doesNotRevokeSsoLoginFamily() {
         UserSsoSession session = liveSession();
         given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
                 .willReturn(Optional.of(session));
-        given(ssoOAuth2Client.revokeRefreshToken("old-refresh")).willReturn(true);
 
-        sut.revoke(SESSION_ID);
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            sut.revoke(SESSION_ID);
+            // 커밋 뒤에 부르려고 걸어 둔 것도 없어야 한다
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations())
+                    .isEmpty();
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
 
-        // 암호문이 아니라 원본을 넘겨야 SSO 가 해시로 찾는다
-        verify(ssoOAuth2Client).revokeRefreshToken("old-refresh");
+        // 저장해 둔 SSO refresh 는 행과 함께 버려진다 — 이 세션의 조용한 연장에 다시 쓰이지 않는다
         assertThat(session.isActive()).isFalse();
+        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
+        verify(cipher, never()).decrypt(anyString());
     }
 
+    // ── 기기 목록에서 끊을 때의 SSO 로그인 계열 폐기 (보안 점검 CLI-2) ─────────
+
     @Test
-    @DisplayName("B-6 - 트랜잭션 안의 로그아웃은 SSO 를 커밋 뒤에 부른다 · 롤백되면 부르지 않는다")
-    void revoke_callsSsoAfterCommitOnly() {
+    @DisplayName("B-6 - 트랜잭션 안의 기기 로그아웃은 SSO 를 커밋 뒤에 부른다 · 롤백되면 부르지 않는다")
+    void revokeOwned_callsSsoAfterCommitOnly() {
         UserSsoSession session = liveSession();
         given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
                 .willReturn(Optional.of(session));
@@ -481,7 +494,7 @@ class SsoSessionServiceTest {
 
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
-            sut.revoke(SESSION_ID);
+            sut.revokeOwned(7L, SESSION_ID);
             // 트랜잭션 안에서는 아직 부르지 않는다 — SSO 가 느려도 커넥션 · 행 잠금을 쥐지 않게
             verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
             java.util.List<org.springframework.transaction.support.TransactionSynchronization> syncs =
@@ -491,6 +504,7 @@ class SsoSessionServiceTest {
         } finally {
             org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
         }
+        // 암호문이 아니라 원본을 넘겨야 SSO 가 해시로 찾는다
         verify(ssoOAuth2Client).revokeRefreshToken("old-refresh");
 
         // 롤백(afterCommit 이 오지 않음)이면 SSO 도 끊지 않는다
@@ -500,7 +514,7 @@ class SsoSessionServiceTest {
                 .willReturn(Optional.of(other));
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
-            sut.revoke(SESSION_ID);
+            sut.revokeOwned(7L, SESSION_ID);
             org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
                     .forEach(sync -> sync.afterCompletion(
                             org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK));
@@ -511,40 +525,29 @@ class SsoSessionServiceTest {
     }
 
     @Test
-    @DisplayName("SSO 가 폐기를 못 받아도 로그아웃은 끝난다")
-    void revoke_ssoFailure_stillLogsOut() {
+    @DisplayName("SSO 가 폐기를 못 받아도 기기 로그아웃은 끝난다")
+    void revokeOwned_ssoFailure_stillRevokes() {
         UserSsoSession session = liveSession();
         given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
                 .willReturn(Optional.of(session));
         given(ssoOAuth2Client.revokeRefreshToken(anyString())).willReturn(false);
 
-        sut.revoke(SESSION_ID); // 예외 없음
+        assertThat(sut.revokeOwned(7L, SESSION_ID)).isTrue(); // 예외 없음
 
         assertThat(session.isActive()).isFalse();
     }
 
     @Test
-    @DisplayName("refresh 를 풀다 터져도 로그아웃은 끝난다")
-    void revoke_decryptFailure_stillLogsOut() {
+    @DisplayName("refresh 를 풀다 터져도 기기 로그아웃은 끝난다")
+    void revokeOwned_decryptFailure_stillRevokes() {
         UserSsoSession session = liveSession();
         given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
                 .willReturn(Optional.of(session));
         given(cipher.decrypt(anyString())).willThrow(new IllegalStateException("bad key"));
 
-        sut.revoke(SESSION_ID); // 예외 없음
+        assertThat(sut.revokeOwned(7L, SESSION_ID)).isTrue(); // 예외 없음
 
         assertThat(session.isActive()).isFalse();
-        verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
-    }
-
-    @Test
-    @DisplayName("세션 행이 없으면 SSO 에 보낼 refresh 도 없다 — 부르지 않는다")
-    void revoke_missingSession_doesNotCallSso() {
-        given(sessionRepository.findBySessionIdAndIsDeleted(SESSION_ID, YNType.N))
-                .willReturn(Optional.empty());
-
-        sut.revoke(SESSION_ID);
-
         verify(ssoOAuth2Client, never()).revokeRefreshToken(anyString());
     }
 

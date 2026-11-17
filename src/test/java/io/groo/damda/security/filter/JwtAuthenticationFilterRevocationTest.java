@@ -107,7 +107,7 @@ class JwtAuthenticationFilterRevocationTest {
     void revokedSession_isNotAuthenticated() throws Exception {
         revoked();
 
-        run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID));
+        run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID, null));
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
@@ -118,7 +118,7 @@ class JwtAuthenticationFilterRevocationTest {
         revoked();
 
         MockHttpServletResponse response =
-                run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID));
+                run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID, null));
 
         assertThat(response.getStatus()).isEqualTo(200);
     }
@@ -128,7 +128,7 @@ class JwtAuthenticationFilterRevocationTest {
     void liveSession_stillAuthenticates() throws Exception {
         given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
 
-        run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID));
+        run(jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID, null));
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
     }
@@ -149,7 +149,7 @@ class JwtAuthenticationFilterRevocationTest {
     void liveSession_stillRenewsCookie() throws Exception {
         given(revocationStore.isRevoked(SESSION_ID)).willReturn(false);
         given(tokenExchangeService.reauthenticate(any())).willReturn(
-                jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID));
+                jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, SESSION_ID, null));
 
         MockHttpServletResponse response = run(almostExpiredToken(SESSION_ID));
 

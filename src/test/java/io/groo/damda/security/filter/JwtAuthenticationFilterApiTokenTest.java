@@ -61,7 +61,7 @@ class JwtAuthenticationFilterApiTokenTest {
 
     private String cookieJwt() {
         return jwtTokenProvider.createAccessToken(
-            "cookie-user", "쿠키", "cookie@porest.cloud", 99L, UUID.randomUUID().toString());
+            "cookie-user", "쿠키", "cookie@porest.cloud", 99L, UUID.randomUUID().toString(), null);
     }
 
     @Test

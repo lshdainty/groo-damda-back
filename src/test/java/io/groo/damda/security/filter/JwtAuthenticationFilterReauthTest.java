@@ -108,7 +108,7 @@ class JwtAuthenticationFilterReauthTest {
     @Test
     @DisplayName("만료된 토큰 — 재발급되면 인증된 채로 요청이 진행되고 쿠키가 갱신된다")
     void expiredToken_reauthenticated() throws Exception {
-        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1");
+        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1", null);
         given(tokenExchangeService.reauthenticate(any())).willReturn(newToken);
 
         MockHttpServletResponse response = run(expiredToken("sid-1"));
@@ -123,7 +123,7 @@ class JwtAuthenticationFilterReauthTest {
     @Test
     @DisplayName("재발급된 토큰은 같은 세션을 유지한다 — 매번 새 세션이면 기기 관리가 무너진다")
     void reauthenticated_keepsSessionId() throws Exception {
-        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1");
+        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1", null);
         given(tokenExchangeService.reauthenticate(any())).willReturn(newToken);
 
         run(expiredToken("sid-1"));
@@ -205,7 +205,7 @@ class JwtAuthenticationFilterReauthTest {
     @Test
     @DisplayName("아직 안 만료된 토큰은 재발급 경로를 타지 않는다")
     void validToken_skipsReauth() throws Exception {
-        String valid = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1");
+        String valid = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1", null);
 
         run(valid);
 
@@ -216,7 +216,7 @@ class JwtAuthenticationFilterReauthTest {
     @Test
     @DisplayName("쿠키 수명은 토큰이 아니라 세션 수명 — 짧으면 만료 토큰이 서버에 도달조차 못 한다")
     void renewedCookie_usesSessionLifetime() throws Exception {
-        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1");
+        String newToken = jwtTokenProvider.createAccessToken("tester", "테스터", "tester@porest.com", 7L, "sid-1", null);
         given(tokenExchangeService.reauthenticate(any())).willReturn(newToken);
 
         MockHttpServletResponse response = run(expiredToken("sid-1"));

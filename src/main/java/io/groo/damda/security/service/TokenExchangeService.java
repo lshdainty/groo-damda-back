@@ -10,6 +10,7 @@ import io.groo.damda.expense.service.ExpenseCategoryService;
 import io.groo.damda.security.jwt.JwtTokenProvider;
 import io.groo.damda.security.principal.JwtClaimsPrincipal;
 import io.groo.damda.security.session.service.SsoSessionService;
+import io.groo.damda.security.session.store.SsoLoginLogoutStore;
 import io.groo.damda.user.domain.User;
 import io.groo.damda.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
@@ -26,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @RequiredArgsConstructor
 public class TokenExchangeService {
     private static final String DESK_SERVICE_CODE = "desk";
+    /** SSO access token 이 싣는 로그인 번호 — 로그인 한 번에 값 하나. 비밀번호로 다시 로그인하면 새 값이 나온다. */
+    private static final String SSO_SID_CLAIM = "sid";
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
@@ -33,21 +36,39 @@ public class TokenExchangeService {
     private final ExpenseCategoryService expenseCategoryService;
     private final SsoOAuth2Client ssoOAuth2Client;
     private final SsoSessionService ssoSessionService;
+    private final SsoLoginLogoutStore ssoLoginLogoutStore;
 
     /**
      * Authorization Code 교환 — SSO {@code /oauth2/token} 에 code+code_verifier 를 교환해
-     * SSO access_token 을 받은 뒤, 기존 {@link #exchangeToken} 경로로 검증·자체 desk JWT 발급한다.
+     * SSO access_token 을 받은 뒤, 그 토큰을 검증하고 자체 desk JWT 를 발급한다.
      * (BFF: 자체 desk JWT 를 httpOnly 쿠키로 내려준다.)
      *
      * <p>같이 받은 refresh token 은 세션에 보관한다. desk 토큰이 만료됐을 때 사용자를 다시
      * 로그인시키지 않고 조용히 재발급하는 데 쓴다.
+     *
+     * <p><b>담다에서 로그아웃한 SSO 로그인으로 돌아왔으면 거절한다</b>({@code AUTH_030}, 보안 점검 CLI-6).
+     * 로그아웃은 담다 세션만 끝내고 SSO 로그인은 그대로 두므로, SSO 는 비밀번호를 묻지 않고 인가코드를
+     * 다시 내준다. 여기서 막지 않으면 로그아웃이 로그인 버튼 한 번으로 되돌려진다. 토큰도 세션도 만들지
+     * 않는다 — 화면이 이 코드를 보고 비밀번호를 다시 묻는 로그인으로 보낸다(그러면 새 sid 가 나온다).
+     * 이 검사는 <b>새 로그인을 만드는 여기에만</b> 둔다. {@link #reauthenticate}(저장해 둔 SSO refresh 로
+     * 세션을 조용히 연장)에는 두지 않는다 — 같은 SSO 로그인으로 만든 다른 담다 세션은 로그아웃하지 않았다.
+     *
+     * <p><b>새 로그인을 만드는 입구는 여기 하나다.</b> SSO 토큰을 직접 받아 desk 토큰을 내주는 다른 공개
+     * 메서드를 만들지 마라 — 이 검사를 건너뛰는 길이 된다.
      */
     @Transactional
     public TokenExchangeDto.Response exchangeCode(String code, String codeVerifier, String redirectUri,
                                                   String userAgent) {
         SsoOAuth2Client.TokenPair pair = ssoOAuth2Client.exchangeCodeForToken(code, codeVerifier, redirectUri);
+        Claims ssoClaims = validateSsoToken(pair.accessToken());
+        String ssoSid = ssoSidOf(ssoClaims);
+        // sid 가 없는 옛 SSO 토큰은 무엇을 로그아웃했는지 가릴 수 없다 — 검사 없이 통과시킨다.
+        if (ssoSid != null && ssoLoginLogoutStore.isLoggedOut(ssoSid)) {
+            log.info("담다에서 로그아웃한 SSO 로그인으로 돌아온 교환 — 거절한다. userId={}", ssoClaims.getSubject());
+            throw new UnauthorizedException(DeskErrorCode.SSO_LOGIN_LOGGED_OUT);
+        }
         String sessionId = jwtTokenProvider.newSessionId();
-        Exchanged exchanged = doExchange(pair.accessToken(), sessionId);
+        Exchanged exchanged = doExchange(ssoClaims, sessionId);
         ssoSessionService.create(exchanged.userRowId(), sessionId, pair.refreshToken(), userAgent);
         return exchanged.response();
     }
@@ -72,8 +93,10 @@ public class TokenExchangeService {
         AtomicReference<String> exchanged = new AtomicReference<>();
         SsoSessionService.RefreshResult result = ssoSessionService.refresh(expired.sessionId(),
             // SSO 를 실제로 불렀다 — 로그인과 같은 경로로 태운다. desk 접근 권한·사용자 정보가
-            // 매 재발급마다 다시 확인된다(권한을 뺏겼으면 여기서 걸린다).
-            ssoAccessToken -> exchanged.set(doExchange(ssoAccessToken, expired.sessionId()).response().accessToken()));
+            // 매 재발급마다 다시 확인된다(권한을 뺏겼으면 여기서 걸린다). 새 SSO access token 에도
+            // 같은 sid 가 실려 있어, 다시 발급되는 desk 토큰의 sso_sid 가 그대로 이어진다.
+            ssoAccessToken -> exchanged.set(
+                doExchange(validateSsoToken(ssoAccessToken), expired.sessionId()).response().accessToken()));
         if (!result.renewed()) {
             return null;
         }
@@ -84,13 +107,9 @@ public class TokenExchangeService {
 
         // 앞선 요청이 방금 갱신해 뒀다. 신원은 서명이 검증된 만료 토큰에서 그대로 가져온다.
         return jwtTokenProvider.createAccessToken(
-            expired.userId(), expired.userName(), expired.userEmail(), expired.userRowId(), expired.sessionId()
+            expired.userId(), expired.userName(), expired.userEmail(), expired.userRowId(), expired.sessionId(),
+            expired.ssoSid()
         );
-    }
-
-    @Transactional
-    public TokenExchangeDto.Response exchangeToken(String ssoToken, String sessionId) {
-        return doExchange(ssoToken, sessionId).response();
     }
 
     /**
@@ -99,15 +118,23 @@ public class TokenExchangeService {
      */
     private record Exchanged(TokenExchangeDto.Response response, Long userRowId) {}
 
-    private Exchanged doExchange(String ssoToken, String sessionId) {
-        Claims ssoClaims;
+    /** SSO access token 의 서명을 검증하고 claims 를 꺼낸다. 통과하지 못하면 {@code AUTH_EXCHANGE_FAILED}. */
+    private Claims validateSsoToken(String ssoToken) {
         try {
-            ssoClaims = jwtTokenProvider.validateSsoToken(ssoToken);
+            return jwtTokenProvider.validateSsoToken(ssoToken);
         } catch (Exception e) {
             log.error("SSO token validation failed: {}", e.getMessage());
             throw new UnauthorizedException(DeskErrorCode.AUTH_EXCHANGE_FAILED);
         }
+    }
 
+    /** SSO 로그인 번호. SSO 가 sid 를 싣기 전에 발급한 토큰에는 없다({@code null}). */
+    private static String ssoSidOf(Claims ssoClaims) {
+        String sid = ssoClaims.get(SSO_SID_CLAIM, String.class);
+        return sid == null || sid.isBlank() ? null : sid;
+    }
+
+    private Exchanged doExchange(Claims ssoClaims, String sessionId) {
         String userId = ssoClaims.getSubject();
 
         // services claim에서 desk 서비스 접근 권한 확인
@@ -155,8 +182,10 @@ public class TokenExchangeService {
         // Update user info if changed
         user.updateFromSso(ssoUserNo, userName, userEmail);
 
+        // SSO 로그인 번호를 desk 토큰에 옮겨 싣는다 — 로그아웃이 어느 SSO 로그인을 기억할지 여기서 정해진다.
         String accessToken = jwtTokenProvider.createAccessToken(
-            user.getUserId(), user.getUserName(), user.getUserEmail(), user.getRowId(), sessionId
+            user.getUserId(), user.getUserName(), user.getUserEmail(), user.getRowId(), sessionId,
+            ssoSidOf(ssoClaims)
         );
 
         return new Exchanged(

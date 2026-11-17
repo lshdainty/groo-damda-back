@@ -57,7 +57,7 @@ public class SsoSessionService {
     private final AesGcmCipher cipher;
     private final JwtProperties jwtProperties;
     private final SessionRevocationStore revocationStore;
-    /** 로그아웃의 SSO 계열 폐기를 요청 스레드 밖에서 부른다(B-6 후속) */
+    /** 기기 목록에서 끊은 기기의 SSO 계열 폐기를 요청 스레드 밖에서 부른다(B-6 후속) */
     private final SsoLoginRevoker ssoLoginRevoker;
 
     /** 재발급의 판정·반영 구간만 짧게 감싼다. SSO 호출은 이 밖에서 한다. */
@@ -280,8 +280,13 @@ public class SsoSessionService {
     }
 
     /**
-     * 로그아웃 — 이 기기 세션만 끊는다. 다른 기기는 살아 있어야 한다. 이 세션을 만든 SSO 로그인
-     * (앱이면 시스템 브라우저에 남은 SSO 쿠키 포함)도 SSO 에서 함께 끊는다 — 커밋 뒤에({@link #revokeSsoLoginAfterCommit}).
+     * 로그아웃 — 이 기기의 담다 세션만 끊는다. 다른 기기는 살아 있어야 한다.
+     *
+     * <p><b>SSO 로그인은 건드리지 않는다</b>(보안 점검 CLI-6, 사용자 결정) — 서비스에서 로그아웃하면 그
+     * 서비스만 끝난다. 예전엔 여기서 SSO 에 그 로그인 계열의 폐기를 요청해(보안 점검 CLI-2) 같은 브라우저의
+     * 이음까지 끊겼다. 살아 있는 SSO 로그인으로 비밀번호 없이 다시 들어오는 것은 담다가 로그아웃한 SSO
+     * 로그인을 기억해 막는다({@code SsoLoginLogoutStore} — 부르는 쪽이 기록한다). 저장해 둔 SSO refresh 는
+     * 행과 함께 버려져 이 세션을 조용히 연장하는 데 다시 쓰이지 않는다.
      *
      * <p>세션 행을 못 찾아도 폐기 표식은 남긴다. 로그아웃은 사용자가 명시적으로 누른 것이고,
      * 지금 손에 든 access token 은 어떤 경우에도 죽어야 한다. 행이 없을 수 있는 이유는
@@ -292,27 +297,24 @@ public class SsoSessionService {
     @Transactional
     public void revoke(String sessionId) {
         sessionRepository.findBySessionIdAndIsDeleted(sessionId, YNType.N)
-                .ifPresent(session -> {
-                    session.revoke();
-                    revokeSsoLoginAfterCommit(session);
-                });
+                .ifPresent(UserSsoSession::revoke);
         markRevoked(sessionId);
     }
 
     /**
-     * 이 세션을 만든 SSO 로그인의 토큰 계열을 SSO 에서 끊는다(보안 점검 CLI-2).
+     * 이 세션을 만든 SSO 로그인의 토큰 계열을 SSO 에서 끊는다(보안 점검 CLI-2) — <b>기기 목록에서 다른
+     * 기기를 끊을 때만</b> 쓴다({@link #revokeOwned}). 본인이 누르는 로그아웃({@link #revoke})은 쓰지 않는다.
      *
-     * <p>앱은 시스템 브라우저로 로그인해서, 앱에서 로그아웃해도 브라우저에 SSO refresh 쿠키(7일)가 남았다.
-     * 잠금이 풀린 기기를 쥔 사람이 브라우저로 담다 웹을 열면 비밀번호 없이 들어간다. 손에 든 refresh 로
-     * SSO 에 폐기를 요청하면 같은 로그인의 브라우저 쿠키도 함께 끊긴다. 다른 기기 · 다른 로그인은 그대로다.
+     * <p>앱은 시스템 브라우저로 로그인해서 브라우저에 SSO refresh 쿠키(7일)가 남는다. 잃어버린 기기의
+     * 담다 세션만 끊으면, 그 기기를 쥔 사람이 브라우저로 담다 웹을 열어 비밀번호 없이 들어간다. 손에 든
+     * refresh 로 SSO 에 폐기를 요청하면 같은 로그인의 브라우저 쿠키도 함께 끊긴다. 다른 기기 · 다른 로그인은
+     * 그대로다. 끊는 쪽은 그 기기의 SSO 로그인 번호를 모르므로(그 기기의 토큰에만 실려 있다) 로그아웃처럼
+     * 기억해 두는 방식으로는 막을 수 없다.
      *
-     * <p>실패해도 로그아웃은 진행한다 — 담다 세션은 이미 끊었고, SSO 가 잠깐 죽었다고 로그아웃이
-     * 에러가 되면 안 된다. 로그만 남긴다.
-     */
-    /**
-     * SSO 계열 폐기를 <b>담다 트랜잭션이 커밋된 뒤</b>, <b>요청 스레드 밖에서</b> 부른다(감사 지적 B-6 · 후속).
+     * <p>실패해도 진행한다 — 담다 세션은 이미 끊었고, SSO 가 잠깐 죽었다고 에러가 되면 안 된다. 로그만 남긴다.
      *
-     * <p>트랜잭션 안에서 부르면 SSO 가 느린 동안 커넥션과 세션 행 잠금을 쥔다. afterCommit 에서 직접 불러도 그 콜백은 커넥션
+     * <p>SSO 계열 폐기는 <b>담다 트랜잭션이 커밋된 뒤</b>, <b>요청 스레드 밖에서</b> 부른다(감사 지적 B-6 · 후속).
+     * 트랜잭션 안에서 부르면 SSO 가 느린 동안 커넥션과 세션 행 잠금을 쥔다. afterCommit 에서 직접 불러도 그 콜백은 커넥션
      * 반납보다 먼저 돌아 커넥션을 쥐고 기다린다. 그래서 커밋 뒤에 {@link SsoLoginRevoker} 에 넘기기만 한다 — 롤백되면 넘기지 않는다.
      * 필요한 값(세션 id · 암호문)은 지금 읽어 둔다. 트랜잭션 밖에서 불렸으면 바로 넘긴다.
      */

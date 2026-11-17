@@ -43,7 +43,7 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("access 토큰 발급 — typ=access 클레임이 포함되고 만료가 약 30분")
     void createAccessToken_setsTypAccess() {
-        String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1");
+        String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", null);
 
         Claims c = parse(token);
         assertThat(c.get("typ", String.class)).isEqualTo("access");
@@ -76,14 +76,14 @@ class JwtTokenProviderTest {
     @Test
     @DisplayName("access 토큰의 isEmbed=false")
     void accessToken_isNotEmbed() {
-        String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1");
+        String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", null);
         assertThat(sut.validateAndGetClaims(token).isEmbed()).isFalse();
     }
 
     @Test
     @DisplayName("새 토큰은 iss=porest-desk 를 싣는다")
     void newTokens_carryDeskIssuer() {
-        assertThat(parse(sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1")).getIssuer())
+        assertThat(parse(sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", null)).getIssuer())
                 .isEqualTo(JwtTokenProvider.DESK_ISSUER);
         assertThat(parse(sut.createEmbedToken("u1", "User", "u@e.com", 100L, "sid-1")).getIssuer())
                 .isEqualTo(JwtTokenProvider.DESK_ISSUER);
@@ -179,6 +179,64 @@ class JwtTokenProviderTest {
 
         assertThat(sut.isTokenValid(preDeployToken(new Date(System.currentTimeMillis() + 600_000L)))).isFalse();
         assertThat(sut.parseExpiredClaims(preDeployToken(new Date(System.currentTimeMillis() - 60_000L)))).isNull();
+    }
+
+    // ── SSO 로그인 번호(sso_sid) — 보안 점검 CLI-6 ─────────────────────────
+    //
+    // 로그아웃이 "어느 SSO 로그인을 담다에서 로그아웃했는지" 를 이 값으로 기억한다. 토큰에 안 실리거나
+    // 연장 때 떨어지면 로그아웃이 아무것도 기억하지 못해, 비밀번호 없이 다시 들어오는 길이 열린다.
+
+    @Test
+    @DisplayName("CLI-6: SSO 로그인 번호를 sso_sid 클레임으로 싣고, 검증하면 그대로 돌아온다")
+    void accessToken_carriesSsoSid() {
+        String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", "sso-login-1");
+
+        // 클레임 이름은 고정이다 — 이미 발급된 토큰이 이 이름으로 돌아다닌다
+        assertThat(parse(token).get("sso_sid", String.class)).isEqualTo("sso-login-1");
+        JwtClaimsPrincipal claims = sut.validateAndGetClaims(token);
+        assertThat(claims.ssoSid()).isEqualTo("sso-login-1");
+        assertThat(claims.hasSsoSid()).isTrue();
+        assertThat(claims.sessionId()).isEqualTo("sid-1");
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 로그인 번호가 없으면(옛 SSO 토큰) 클레임 자체를 싣지 않는다")
+    void accessToken_withoutSsoSid_omitsClaim() {
+        for (String none : new String[] {null, "", " "}) {
+            String token = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", none);
+
+            assertThat(parse(token)).doesNotContainKey("sso_sid");
+            JwtClaimsPrincipal claims = sut.validateAndGetClaims(token);
+            assertThat(claims.ssoSid()).isNull();
+            assertThat(claims.hasSsoSid()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("CLI-6: 만료된 토큰에서도 sso_sid 가 읽힌다 — 조용한 연장이 이 값을 새 토큰으로 옮긴다")
+    void expiredToken_keepsSsoSid() {
+        props.setAccessTokenExpiration(-60_000L); // 발급하자마자 만료된 토큰
+        String expired = sut.createAccessToken("u1", "User", "u@e.com", 100L, "sid-1", "sso-login-1");
+
+        JwtClaimsPrincipal claims = sut.parseExpiredClaims(expired);
+
+        assertThat(claims).isNotNull();
+        assertThat(claims.ssoSid()).isEqualTo("sso-login-1");
+
+        // 연장 — 만료 토큰의 값을 그대로 넘겨 다시 발급하면 같은 번호가 이어진다
+        props.setAccessTokenExpiration(ACCESS_EXP_MS);
+        String renewed = sut.createAccessToken(claims.userId(), claims.userName(), claims.userEmail(),
+                claims.userRowId(), claims.sessionId(), claims.ssoSid());
+        assertThat(sut.validateAndGetClaims(renewed).ssoSid()).isEqualTo("sso-login-1");
+    }
+
+    @Test
+    @DisplayName("CLI-6: 임베드 토큰에는 sso_sid 가 없다 — 로그아웃에 쓰이는 토큰이 아니다")
+    void embedToken_hasNoSsoSid() {
+        String token = sut.createEmbedToken("u1", "User", "u@e.com", 100L, "sid-parent");
+
+        assertThat(parse(token)).doesNotContainKey("sso_sid");
+        assertThat(sut.validateAndGetClaims(token).hasSsoSid()).isFalse();
     }
 
     private Claims parse(String token) {

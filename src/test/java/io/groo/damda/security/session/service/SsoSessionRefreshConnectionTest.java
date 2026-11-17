@@ -91,7 +91,7 @@ class SsoSessionRefreshConnectionTest {
         });
 
         String token = tokenExchangeService.reauthenticate(new JwtClaimsPrincipal(
-                "tester", "테스터", "tester@porest.com", 7L, "access", sessionId));
+                "tester", "테스터", "tester@porest.com", 7L, "access", sessionId, null));
 
         assertThat(token).isNull();
         assertThat(inTx).as("SSO 호출 중 트랜잭션").containsExactly(false);
@@ -163,7 +163,7 @@ class SsoSessionRefreshConnectionTest {
         given(ssoOAuth2Client.refreshTokens(anyString())).willReturn(new SsoOAuth2Client.TokenPair("not-a-jwt", "T1"));
 
         assertThatThrownBy(() -> tokenExchangeService.reauthenticate(new JwtClaimsPrincipal(
-                "tester", "테스터", "tester@porest.com", 7L, "access", sessionId)))
+                "tester", "테스터", "tester@porest.com", 7L, "access", sessionId, null)))
                 .isInstanceOf(io.groo.core.exception.UnauthorizedException.class);
 
         UserSsoSession after = load(sessionId);
