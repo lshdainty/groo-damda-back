@@ -69,10 +69,27 @@ public class SsoSessionEventSubscriber {
         try {
             switch (event.type()) {
                 case SESSION_REVOKED_ALL -> handleRevokedAll(event);
+                case SESSION_REVOKED -> handleRevoked(event);
             }
         } catch (Exception e) {
             log.error("세션 이벤트 처리 실패: {}", message, e);
         }
+    }
+
+    /**
+     * SSO 로그인 한 건이 끊겼다 — 그 로그인에서 나온 담다 세션만 끊는다(보안 점검 CLI-6).
+     *
+     * <p>이 알림이 없으면 그루 계정에서 로그아웃하거나 관리자가 세션을 종료해도, 담다는 자기 access token 이
+     * 만료될 때까지 열려 있었다. 사용자를 찾지 않는다 — 대조하는 값은 토큰에 실린 SSO 로그인 번호 하나다.
+     */
+    private void handleRevoked(SessionEvent event) {
+        if (event.sessionId() == null || event.sessionId().isBlank()) {
+            log.warn("로그인 폐기 이벤트에 로그인 번호가 없다 — 무시한다. reason={}", event.reason());
+            return;
+        }
+        ssoSessionService.revokeSsoLogin(event.sessionId());
+        log.info("SSO 로그인 폐기 전파 — 그 로그인의 desk 세션을 끊었다. ssoUserRowId={}, reason={}",
+                event.ssoUserRowId(), event.reason());
     }
 
     private void handleRevokedAll(SessionEvent event) {

@@ -90,6 +90,13 @@ public class TokenExchangeService {
      * @param expired 서명이 검증된 토큰의 claims(만료됐거나 만료 직전)
      */
     public String reauthenticate(JwtClaimsPrincipal expired) {
+        // SSO 가 끊은 로그인에서 나온 세션이면 재발급하지 않는다(보안 점검 CLI-6). 아래 refresh 도 SSO 가 거절해
+        // 결국 실패하지만, 앞선 요청이 방금 갱신해 둔 유예 구간에서는 SSO 를 부르지 않고 같은 sso_sid 로 다시 서명한다 —
+        // 그 틈을 여기서 막는다. 이 세션은 더 쓸 수 없으므로 행도 지워 "로그인된 기기" 목록에서 사라지게 한다.
+        if (expired.hasSsoSid() && ssoSessionService.isSsoLoginRevoked(expired.ssoSid())) {
+            ssoSessionService.revoke(expired.sessionId());
+            return null;
+        }
         AtomicReference<String> exchanged = new AtomicReference<>();
         SsoSessionService.RefreshResult result = ssoSessionService.refresh(expired.sessionId(),
             // SSO 를 실제로 불렀다 — 로그인과 같은 경로로 태운다. desk 접근 권한·사용자 정보가

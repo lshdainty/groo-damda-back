@@ -34,4 +34,17 @@ public interface SessionRevocationStore {
      * 이유는 각 구현의 주석에 적혀 있다.
      */
     boolean isRevoked(String sessionId);
+
+    /**
+     * 이 SSO 로그인(SSO access 토큰의 {@code sid})에서 나온 세션을 전부 폐기됐다고 표시한다 — SSO 가 그 로그인을
+     * 끝냈을 때다(그루 계정 로그아웃 · 기기 끊기 · 관리자 세션 종료, 보안 점검 CLI-6).
+     *
+     * <p>세션 단위 표식({@link #revoke})과 키가 다르다. 세션 행에는 SSO 로그인 번호가 없어 "그 로그인의 세션" 을
+     * 행으로 찾을 수 없다 — 대신 desk access token 이 싣고 다니는 {@code sso_sid} 를 필터가 이 표식과 대조한다.
+     * 0 이하의 수명이면 저장하지 않는다.
+     */
+    void revokeSsoLogin(String ssoSid, long ttlSeconds);
+
+    /** SSO 가 끊은 로그인인가. {@link #isRevoked} 와 같이 구현은 fail-open 이다. */
+    boolean isSsoLoginRevoked(String ssoSid);
 }

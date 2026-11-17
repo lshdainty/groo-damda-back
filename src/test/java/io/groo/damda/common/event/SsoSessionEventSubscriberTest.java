@@ -45,6 +45,11 @@ class SsoSessionEventSubscriberTest {
             {"type":"SESSION_REVOKED_ALL","ssoUserRowId":7,"reason":"admin-force-logout",\
             "timestamp":"2026-08-24T10:30:00"}""";
 
+    /** 로그인 한 건 폐기(CLI-6) — 발행 쪽은 계열 번호(sessionId)를 싣는다. 전체 폐기에는 null 로 온다. */
+    private static final String REVOKED = """
+            {"type":"SESSION_REVOKED","ssoUserRowId":7,"sessionId":"sso-login-1","reason":"logout",\
+            "timestamp":"2026-11-17T10:30:00"}""";
+
     private User deskUser(Long rowId) {
         User user = User.createUser(7L, "hong", "홍길동", "hong@porest.cloud");
         ReflectionTestUtils.setField(user, "rowId", rowId);
@@ -82,6 +87,46 @@ class SsoSessionEventSubscriberTest {
                 "timestamp":"2026-08-24T10:30:00","sessionId":"future-field"}""");
 
         verify(ssoSessionService).revokeAll(42L);
+    }
+
+    @Test
+    @DisplayName("CLI-6: 로그인 한 건 폐기를 받으면 그 SSO 로그인의 desk 세션만 끊는다 — 사용자 전체는 끊지 않는다")
+    void revoked_cutsOnlyThatSsoLogin() {
+        sut.handleSessionEvent(REVOKED);
+
+        verify(ssoSessionService).revokeSsoLogin("sso-login-1");
+        verify(ssoSessionService, never()).revokeAll(any());
+        // 로그인 번호 하나로 대조한다 — 사용자를 찾지 않는다
+        verify(userRepository, never()).findBySsoUserRowId(any());
+    }
+
+    @Test
+    @DisplayName("CLI-6: 사용자 번호가 비어 있어도 끊고, 로그인 번호가 없으면 아무것도 하지 않는다")
+    void revoked_needsOnlySessionId() {
+        sut.handleSessionEvent("""
+                {"type":"SESSION_REVOKED","ssoUserRowId":null,"sessionId":"sso-login-2","reason":"oauth2-revoke",\
+                "timestamp":"2026-11-17T10:30:00"}""");
+        sut.handleSessionEvent("""
+                {"type":"SESSION_REVOKED","ssoUserRowId":7,"sessionId":null,"reason":"logout",\
+                "timestamp":"2026-11-17T10:30:00"}""");
+        sut.handleSessionEvent("""
+                {"type":"SESSION_REVOKED","ssoUserRowId":7,"reason":"logout","timestamp":"2026-11-17T10:30:00"}""");
+
+        verify(ssoSessionService).revokeSsoLogin("sso-login-2");
+        verify(ssoSessionService, org.mockito.Mockito.times(1)).revokeSsoLogin(any());
+    }
+
+    @Test
+    @DisplayName("전체 폐기에 실려 오는 빈 sessionId 는 무시된다 — 예전처럼 사용자 전체를 끊는다")
+    void revokedAll_withNullSessionId() {
+        given(userRepository.findBySsoUserRowId(7L)).willReturn(Optional.of(deskUser(42L)));
+
+        sut.handleSessionEvent("""
+                {"type":"SESSION_REVOKED_ALL","ssoUserRowId":7,"sessionId":null,"reason":"password-changed",\
+                "timestamp":"2026-11-17T10:30:00"}""");
+
+        verify(ssoSessionService).revokeAll(42L);
+        verify(ssoSessionService, never()).revokeSsoLogin(any());
     }
 
     @Test

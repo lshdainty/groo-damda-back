@@ -425,6 +425,30 @@ public class SsoSessionService {
     }
 
     /**
+     * 끊긴 SSO 로그인 표식을 두는 기간(초). 그 로그인 번호를 실은 desk access token 이 전부 만료될 때까지만 있으면
+     * 된다(access token 수명). 끊긴 번호는 다시 쓰이지 않으므로(다시 로그인하면 새 번호) 넉넉히 하루를 둔다 —
+     * 길게 둬도 잘못 막히는 토큰이 없다.
+     */
+    static final long SSO_LOGIN_REVOCATION_SECONDS = 24 * 60 * 60;
+
+    /**
+     * SSO 가 로그인 한 건을 끝냈다 — 그 로그인에서 나온 desk 세션을 끊는다(보안 점검 CLI-6).
+     *
+     * <p>세션 행은 여기서 건드리지 못한다. 행에 SSO 로그인 번호가 없어 어느 행이 그 로그인의 것인지 모른다
+     * (칸을 더하면 되지만 DB 변경이다). 대신 표식을 남겨 필터가 그 번호를 실은 토큰을 거절하게 하고,
+     * 그 토큰으로 재발급을 청하면({@link #isSsoLoginRevoked} 를 보는 재인증 경로) 그때 그 세션 행을 지운다.
+     * 행에 남은 SSO refresh 는 SSO 가 이미 폐기해 다시 쓸 수 없다.
+     */
+    public void revokeSsoLogin(String ssoSid) {
+        revocationStore.revokeSsoLogin(ssoSid, SSO_LOGIN_REVOCATION_SECONDS);
+    }
+
+    /** SSO 가 끊은 로그인에서 나온 세션인가 — 로그인 번호가 없는 옛 토큰은 대조할 값이 없어 false 다. */
+    public boolean isSsoLoginRevoked(String ssoSid) {
+        return revocationStore.isSsoLoginRevoked(ssoSid);
+    }
+
+    /**
      * 해지 전용 — 세션 <b>행만</b> 끊고 표식 대상을 돌려준다.
      *
      * <p>{@link #revokeAll} 과 가르는 이유는 <b>두 부분이 서로 다른 시점에 일어나야</b>

@@ -74,4 +74,28 @@ class InMemorySessionRevocationStoreTest {
 
         assertThat(springBean.isRevoked("sid-1")).isTrue();
     }
+
+    @Test
+    @DisplayName("CLI-6: 끊긴 SSO 로그인은 세션 표식과 따로 읽힌다 — 같은 글자여도 서로 영향을 주지 않는다")
+    void ssoLoginIsSeparateFromSession() {
+        sut.revokeSsoLogin("x", 60L);
+
+        assertThat(sut.isSsoLoginRevoked("x")).isTrue();
+        assertThat(sut.isRevoked("x")).isFalse();
+        assertThat(sut.isSsoLoginRevoked("y")).isFalse();
+        assertThat(sut.isSsoLoginRevoked(null)).isFalse();
+        assertThat(sut.isSsoLoginRevoked(" ")).isFalse();
+
+        sut.revoke("y", 60L);
+        assertThat(sut.isSsoLoginRevoked("y")).isFalse();
+    }
+
+    @Test
+    @DisplayName("CLI-6: 끊긴 SSO 로그인 표식도 수명이 지나면 사라진다")
+    void ssoLoginExpires() {
+        sut.revokeSsoLogin("x", 60L);
+        clock.addAndGet(60_000L);
+
+        assertThat(sut.isSsoLoginRevoked("x")).isFalse();
+    }
 }

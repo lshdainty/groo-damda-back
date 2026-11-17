@@ -355,4 +355,49 @@ class TokenExchangeServiceTest {
 
         verify(jwtTokenProvider, never()).validateSsoToken(anyString());
     }
+
+    // ── SSO 가 끊은 로그인(CLI-6) — 재발급 경로 ─────────────────────────────
+
+    private static JwtClaimsPrincipal sessionOfSsoLogin(String ssoSid) {
+        return new JwtClaimsPrincipal("tester", "테스터", "tester@porest.com", 7L, "access", "sid", ssoSid);
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 가 끊은 로그인의 세션은 재발급하지 않고, 그 세션 행을 지운다 — SSO 를 부르지도 않는다")
+    void reauthenticate_revokedSsoLogin_isDeniedAndSessionRemoved() {
+        given(ssoSessionService.isSsoLoginRevoked("sso-login-1")).willReturn(true);
+
+        String reissued = sut.reauthenticate(sessionOfSsoLogin("sso-login-1"));
+
+        assertThat(reissued).isNull();
+        // 더 쓸 수 없는 세션이다 — "로그인된 기기" 목록에서도 사라지게 행을 지운다
+        verify(ssoSessionService).revoke("sid");
+        // 앞선 요청이 방금 갱신해 둔 유예 구간이어도 같은 sso_sid 로 다시 서명하지 않는다
+        verify(ssoSessionService, never()).refresh(anyString(), any());
+        verify(jwtTokenProvider, never()).createAccessToken(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("CLI-6: 끊기지 않은 SSO 로그인의 세션은 전처럼 재발급 경로를 탄다")
+    void reauthenticate_liveSsoLogin_goesThroughRefresh() {
+        given(ssoSessionService.isSsoLoginRevoked("sso-login-1")).willReturn(false);
+        given(ssoSessionService.refresh(eq("sid"), any()))
+                .willReturn(new io.groo.damda.security.session.service.SsoSessionService.RefreshResult(false, null));
+
+        assertThat(sut.reauthenticate(sessionOfSsoLogin("sso-login-1"))).isNull();
+
+        verify(ssoSessionService).refresh(eq("sid"), any());
+        verify(ssoSessionService, never()).revoke(anyString());
+    }
+
+    @Test
+    @DisplayName("CLI-6: SSO 로그인 번호가 없는 옛 세션은 그 표식을 보지 않는다")
+    void reauthenticate_withoutSsoSid_skipsLookup() {
+        given(ssoSessionService.refresh(eq("sid"), any()))
+                .willReturn(new io.groo.damda.security.session.service.SsoSessionService.RefreshResult(false, null));
+
+        sut.reauthenticate(sessionOfSsoLogin(null));
+
+        verify(ssoSessionService, never()).isSsoLoginRevoked(any());
+    }
 }

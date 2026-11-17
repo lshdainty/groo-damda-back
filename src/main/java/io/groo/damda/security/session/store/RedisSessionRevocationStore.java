@@ -40,6 +40,8 @@ import java.time.Duration;
 public class RedisSessionRevocationStore implements SessionRevocationStore {
 
     private static final String KEY_PREFIX = "session:revoked:";
+    /** SSO 가 끊은 로그인 번호 — 세션 단위 키와 섞이지 않게 접두사를 나눈다 */
+    private static final String SSO_LOGIN_KEY_PREFIX = "damda:revoked-sso-sid:";
 
     private final StringRedisTemplate redisTemplate;
 
@@ -68,6 +70,33 @@ public class RedisSessionRevocationStore implements SessionRevocationStore {
             // 전 사용자 로그아웃이다.
             log.warn("세션 폐기 표식을 조회하지 못해 통과시킨다. sessionId={}, 원인={}",
                     sessionId, e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    @Override
+    public void revokeSsoLogin(String ssoSid, long ttlSeconds) {
+        if (ssoSid == null || ssoSid.isBlank() || ttlSeconds <= 0) {
+            return;
+        }
+        try {
+            redisTemplate.opsForValue().set(SSO_LOGIN_KEY_PREFIX + ssoSid, "1", Duration.ofSeconds(ttlSeconds));
+        } catch (RuntimeException e) {
+            log.error("끊긴 SSO 로그인 표식을 남기지 못했다 — 그 로그인의 access token 이 만료까지 살아 있다."
+                    + " 원인={}", e.toString());
+        }
+    }
+
+    @Override
+    public boolean isSsoLoginRevoked(String ssoSid) {
+        if (ssoSid == null || ssoSid.isBlank()) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(SSO_LOGIN_KEY_PREFIX + ssoSid));
+        } catch (RuntimeException e) {
+            // fail-open — isRevoked 와 같은 판단이다
+            log.warn("끊긴 SSO 로그인 표식을 조회하지 못해 통과시킨다. 원인={}", e.getClass().getSimpleName());
             return false;
         }
     }
