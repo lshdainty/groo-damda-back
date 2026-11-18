@@ -43,7 +43,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class ApiTokenAuthenticationFilterTest {
 
     private static final String TOKEN = "pdk_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
-    private static final Caller OWNER = new Caller(11L, 7L, "owner", "주인", "owner@porest.cloud");
+    private static final Caller OWNER = new Caller(11L, 7L, "owner", "주인", "owner@hangroo.io");
 
     private ApiTokenService apiTokenService;
     private ApiTokenRateLimiter rateLimiter;
@@ -106,7 +106,7 @@ class ApiTokenAuthenticationFilterTest {
             assertThat(p.getUserRowId()).isEqualTo(7L);
             assertThat(p.getUserId()).isEqualTo("owner");
             assertThat(p.getUserName()).isEqualTo("주인");
-            assertThat(p.getUserEmail()).isEqualTo("owner@porest.cloud");
+            assertThat(p.getUserEmail()).isEqualTo("owner@hangroo.io");
             assertThat(p.getSessionId()).isNull();
             assertThat(p.getClaims().tokenType()).isEqualTo(ApiTokenAuthenticationFilter.TOKEN_TYPE);
         });

@@ -60,7 +60,7 @@ class ApiTokenServiceImplTest {
     }
 
     private User user(Long rowId) {
-        User u = User.createUser(100L + rowId, "user" + rowId, "사용자" + rowId, "user" + rowId + "@porest.cloud");
+        User u = User.createUser(100L + rowId, "user" + rowId, "사용자" + rowId, "user" + rowId + "@hangroo.io");
         ReflectionTestUtils.setField(u, "rowId", rowId);
         return u;
     }
@@ -246,7 +246,7 @@ class ApiTokenServiceImplTest {
                 assertThat(c.userRowId()).isEqualTo(USER);
                 assertThat(c.userId()).isEqualTo("user7");
                 assertThat(c.userName()).isEqualTo("사용자7");
-                assertThat(c.userEmail()).isEqualTo("user7@porest.cloud");
+                assertThat(c.userEmail()).isEqualTo("user7@hangroo.io");
             });
             assertThat(token.getLastUsedAt())
                 .isBetween(LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5), LocalDateTime.now(ZoneOffset.UTC));

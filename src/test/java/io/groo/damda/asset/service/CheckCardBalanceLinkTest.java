@@ -54,7 +54,7 @@ class CheckCardBalanceLinkTest {
 
     @BeforeEach
     void setUp() {
-        user = User.createUser(1L, "tester", "테스터", "tester@porest.cloud");
+        user = User.createUser(1L, "tester", "테스터", "tester@hangroo.io");
         ReflectionTestUtils.setField(user, "rowId", 2L);
         given(userClock.nowIn(any())).willReturn(AT.plusDays(1));
         given(repository.findActiveByAssetIds(anyList(), any())).willReturn(List.of());

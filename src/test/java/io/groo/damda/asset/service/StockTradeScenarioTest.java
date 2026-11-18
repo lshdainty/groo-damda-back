@@ -102,7 +102,7 @@ class StockTradeScenarioTest {
 
     @BeforeEach
     void setUp() {
-        user = User.createUser(1L, "tester", "테스터", "tester@porest.cloud");
+        user = User.createUser(1L, "tester", "테스터", "tester@hangroo.io");
         ReflectionTestUtils.setField(user, "rowId", USER_ID);
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
         given(userClock.now(USER_ID)).willReturn(LocalDateTime.of(2026, 8, 31, 0, 0));

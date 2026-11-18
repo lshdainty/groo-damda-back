@@ -85,7 +85,7 @@ class InvestmentCashPreservedTest {
 
     @BeforeEach
     void setUp() {
-        user = User.createUser(1L, "tester", "테스터", "tester@porest.cloud");
+        user = User.createUser(1L, "tester", "테스터", "tester@hangroo.io");
         ReflectionTestUtils.setField(user, "rowId", USER_ID);
         given(userClock.now(USER_ID)).willReturn(LocalDateTime.of(2026, 8, 10, 12, 0));
         given(assetHoldingRepository.findActiveByAsset(ASSET_ID)).willReturn(List.of());

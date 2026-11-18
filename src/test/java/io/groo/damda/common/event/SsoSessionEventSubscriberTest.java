@@ -51,7 +51,7 @@ class SsoSessionEventSubscriberTest {
             "timestamp":"2026-11-17T10:30:00"}""";
 
     private User deskUser(Long rowId) {
-        User user = User.createUser(7L, "hong", "홍길동", "hong@porest.cloud");
+        User user = User.createUser(7L, "hong", "홍길동", "hong@hangroo.io");
         ReflectionTestUtils.setField(user, "rowId", rowId);
         return user;
     }

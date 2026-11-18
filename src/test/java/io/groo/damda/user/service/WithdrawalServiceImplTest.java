@@ -89,7 +89,7 @@ class WithdrawalServiceImplTest {
     }
 
     private User user() {
-        User u = User.createUser(11L, "qa_user", "홍길동", "hong@porest.cloud");
+        User u = User.createUser(11L, "qa_user", "홍길동", "hong@hangroo.io");
         ReflectionTestUtils.setField(u, "rowId", USER);
         return u;
     }
