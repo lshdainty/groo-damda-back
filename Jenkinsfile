@@ -145,8 +145,10 @@ pipeline {
                         -e JAVA_TOOL_OPTIONS="\$JVM_TOOL_OPTS" \
                         ${IMAGE_NAME}:"\$APP_VERSION"
 
-                    # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
-                    docker network connect monitoring-network ${CONTAINER_NAME}-dev || true
+                    # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리).
+                    # 개발과 운영은 서로 다른 모니터링 망에 붙는다 — 한 망에 같이 두면 개발 백엔드가
+                    # 운영 백엔드 포트에 nginx 를 거치지 않고 닿는다(보안 점검 INF-6). loki · prometheus 는 두 망에 모두 있다.
+                    docker network connect monitoring-dev-network ${CONTAINER_NAME}-dev || true
 
                     # 헬스 게이트 — HEALTHCHECK 가 healthy 가 될 때까지 대기, 못 뜨면 배포 실패
                     st=starting
@@ -202,8 +204,10 @@ pipeline {
                         -e JAVA_TOOL_OPTIONS="\$JVM_TOOL_OPTS" \
                         ${IMAGE_NAME}:"\$APP_VERSION"
 
-                    # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리)
-                    docker network connect monitoring-network ${CONTAINER_NAME}-prod || true
+                    # 모니터링 망 추가 연결 — prometheus 스크레이프·loki 로그 (DB 망과 분리).
+                    # 개발과 운영은 서로 다른 모니터링 망에 붙는다 — 한 망에 같이 두면 개발 백엔드가
+                    # 운영 백엔드 포트에 nginx 를 거치지 않고 닿는다(보안 점검 INF-6). loki · prometheus 는 두 망에 모두 있다.
+                    docker network connect monitoring-prod-network ${CONTAINER_NAME}-prod || true
 
                     # 헬스 게이트 — HEALTHCHECK 가 healthy 가 될 때까지 대기, 못 뜨면 배포 실패
                     st=starting
