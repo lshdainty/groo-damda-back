@@ -1,0 +1,47 @@
+name: Dependency Submission
+
+# ── 의존성 목록을 GitHub 에 제출한다 — 취약점 경보(Dependabot alerts)가 뜨게 하려는 것이다(보안 점검 SUP-8).
+#
+#    GitHub 는 Gradle 빌드 파일을 스스로 읽지 못한다. 제출하지 않으면 의존성에 알려진 취약점이 있어도
+#    경보가 0건으로 보인다 — 검사를 통과한 것이 아니라 검사가 안 된 것이다.
+#
+#    main 에 들어온 커밋만 제출한다. 경보는 기본 브랜치의 의존성을 기준으로 뜬다.
+#    테스트에서만 쓰는 구성(testCompileClasspath · testRuntimeClasspath)은 빼고 낸다 — 배포물에 들어가지 않고,
+#    GitHub 가 아직 "테스트용" 을 따로 구분해 주지 않아 같이 내면 운영에 실리는 것과 섞인다.
+#    빌드 플러그인과 애너테이션 프로세서는 낸다 — CI 와 배포 서버에서 실제로 실행되는 코드다.
+
+on:
+  push:
+    branches: [ main ]
+  # 손으로 다시 낼 때(경보 설정을 바꾼 뒤 등)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-latest
+    permissions:
+      # 의존성 제출 API 가 요구하는 권한이다. 이 잡은 코드를 고치지 않는다.
+      contents: write
+    steps:
+      - name: Checkout Branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      # setup-gradle 과 같은 저장소 · 같은 커밋이다.
+      - name: Generate and submit dependency graph
+        uses: gradle/actions/dependency-submission@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          dependency-graph-exclude-configurations: '.*[Tt]est(Compile|Runtime)Classpath'
+        env:
+          # groo-core 를 GitHub Packages 에서 받으려면 토큰이 필요하다(ci-main.yml 의 테스트 단계와 같다).
+          # 제출은 이 값이 아니라 워크플로 토큰(github.token)으로 한다.
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.READ_PACKAGE_TOKEN }}
