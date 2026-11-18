@@ -69,7 +69,7 @@ class CheckCardMonthlyUsedTest {
 
     @BeforeEach
     void setUp() {
-        user = User.createUser(1L, "tester", "테스터", "tester@porest.cloud");
+        user = User.createUser(1L, "tester", "테스터", "tester@hangroo.io");
         ReflectionTestUtils.setField(user, "rowId", USER_ID);
         given(userClock.now(USER_ID)).willReturn(NOW);
 
