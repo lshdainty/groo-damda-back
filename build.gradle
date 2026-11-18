@@ -8,6 +8,11 @@ plugins {
 group = 'io.groo.damda'
 version = '0.0.1-SNAPSHOT'
 
+// MariaDB 드라이버 — 스프링 부트 4.0.9 가 묶어 주는 3.5.10 에는 알려진 취약점이 남아 있어 같은 줄기의 다음 패치로 올린다(보안 점검 SUP-10).
+// 의존성 줄에 버전을 직접 적지 않고 스프링 부트의 관리 버전을 덮어쓴다 — 직접 적으면 관리 버전은 3.5.10 으로 남아,
+// 일부 내부 경로에서 옛 버전이 같이 풀리고 취약점 경보에도 그대로 잡힌다.
+ext['mariadb.version'] = '3.5.11'
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
@@ -67,7 +72,7 @@ dependencies {
 
     // ==================== Database & JPA ====================
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.mariadb.jdbc:mariadb-java-client:3.5.11'
+    implementation 'org.mariadb.jdbc:mariadb-java-client'
     runtimeOnly 'com.h2database:h2'
 
     // QueryDSL (Hibernate 7 + Jakarta Persistence 3.2)
