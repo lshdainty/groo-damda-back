@@ -76,37 +76,22 @@ class CalendarMembershipValidatorTest {
         assertThat(sut.validateMembership(CAL_ID, USER_ID)).isSameAs(m);
     }
 
-    // ---- canEditOrDelete ----
+    // ---- isShared ----
 
     @Test
-    @DisplayName("canEditOrDelete — 본인이 만든 일정이면 권한 무관 허용")
-    void canEditOwnItem() {
-        UserCalendarMember m = mock(UserCalendarMember.class); // READ 라도 본인이면 허용
-        assertThat(sut.canEditOrDelete(m, USER_ID, USER_ID)).isTrue();
+    @DisplayName("isShared — 소유자 말고 멤버가 있으면 공유 중")
+    void sharedWhenNonOwnerMemberExists() {
+        java.util.List<UserCalendarMember> members = java.util.List.of(member(CalendarRole.OWNER), member(CalendarRole.READ));
+        given(memberRepo.findAllByCalendar(CAL_ID)).willReturn(members);
+        assertThat(sut.isShared(CAL_ID)).isTrue();
     }
 
     @Test
-    @DisplayName("canEditOrDelete — 남의 일정이라도 EDIT 권한이면 허용")
-    void canEditOthersItemWithEdit() {
-        assertThat(sut.canEditOrDelete(member(CalendarRole.EDIT), 2L, USER_ID)).isTrue();
-    }
-
-    @Test
-    @DisplayName("canEditOrDelete — 남의 일정이고 READ 권한이면 불가")
-    void cannotEditOthersItemWithRead() {
-        assertThat(sut.canEditOrDelete(member(CalendarRole.READ), 2L, USER_ID)).isFalse();
-    }
-
-    @Test
-    @DisplayName("canEditOrDelete — 생성자 불명(null·stale)이라도 EDIT 권한이면 허용(NPE 없음)")
-    void canEditWithNullOwnerAndEdit() {
-        assertThat(sut.canEditOrDelete(member(CalendarRole.EDIT), null, USER_ID)).isTrue();
-    }
-
-    @Test
-    @DisplayName("canEditOrDelete — 생성자 불명(null)이고 READ 권한이면 불가")
-    void cannotEditWithNullOwnerAndRead() {
-        assertThat(sut.canEditOrDelete(member(CalendarRole.READ), null, USER_ID)).isFalse();
+    @DisplayName("isShared — 소유자 혼자면 공유 아님")
+    void notSharedWhenOwnerOnly() {
+        java.util.List<UserCalendarMember> members = java.util.List.of(member(CalendarRole.OWNER));
+        given(memberRepo.findAllByCalendar(CAL_ID)).willReturn(members);
+        assertThat(sut.isShared(CAL_ID)).isFalse();
     }
 
     // ---- validateCanWrite ----
