@@ -95,9 +95,37 @@ class WithdrawalServiceImplTest {
     }
 
     private UserCalendarServiceDto.CalendarInfo calendar(Long id, boolean isDefault, CalendarRole role) {
+        return calendar(id, isDefault, role, 1);
+    }
+
+    private UserCalendarServiceDto.CalendarInfo calendar(Long id, boolean isDefault, CalendarRole role, int members) {
         return new UserCalendarServiceDto.CalendarInfo(id, 1L, "주인", "달력", "#fff", 0,
-                isDefault, true, null, false, role == CalendarRole.OWNER, role, 1,
+                isDefault, true, null, members > 1, role == CalendarRole.OWNER, role, members,
                 LocalDateTime.now(), LocalDateTime.now());
+    }
+
+    @Test
+    @DisplayName("다른 멤버가 남은 캘린더의 소유자는 해지를 막는다 — 기본 캘린더도 마찬가지")
+    void blockedBySharedCalendarOwned() {
+        given(userCalendarService.getCalendars(USER)).willReturn(List.of(
+                calendar(1L, true, CalendarRole.OWNER, 2)));
+
+        assertThatThrownBy(() -> service.withdraw(USER, null))
+                .isInstanceOf(io.groo.core.exception.InvalidValueException.class);
+        verify(userCalendarService, never()).deleteCalendar(anyLong(), anyLong());
+
+        var check = service.check(USER);
+        assertThat(check.blocked()).containsExactly("SHARED_CALENDAR_OWNED");
+        assertThat(check.sharedCalendarsToTransfer()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("남의 공유 캘린더 멤버인 것은 막지 않는다 — 나가면 된다")
+    void memberOfSharedCalendarDoesNotBlock() {
+        given(userCalendarService.getCalendars(USER)).willReturn(List.of(
+                calendar(9L, false, CalendarRole.EDIT, 3)));
+
+        assertThat(service.check(USER).hasBlockers()).isFalse();
     }
 
     @Test

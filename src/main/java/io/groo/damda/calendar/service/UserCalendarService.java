@@ -29,8 +29,18 @@ public interface UserCalendarService {
      * 캘린더 멤버인 사람에게 403 으로 통째로 롤백됐다, 2026-09-17 QA).
      *
      * <p>소유자는 이 길로 못 나간다 — 나가면 그 캘린더에 주인이 없어진다. 소유자는
-     * {@link #deleteCalendar} 로 지운다. 멤버가 아니면 조용히 아무 일도 안 한다(멱등).
+     * {@link #transferOwnership} 로 넘기고 나가거나, 혼자 남았으면 {@link #deleteCalendar} 로 지운다.
+     * 멤버가 아니면 조용히 아무 일도 안 한다(멱등).
      */
     void leaveCalendar(Long calendarId, Long userRowId);
+
+    /**
+     * 소유자를 넘기고 나는 나간다 — 넘기면 바로 넘어간다(받는 사람의 수락을 기다리지 않는다).
+     *
+     * <p>받을 수 있는 사람은 편집 가능한 멤버다. 편집 가능한 멤버가 하나도 없을 때만 읽기 전용 멤버에게
+     * 넘길 수 있다(2026-11-24 사용자 결정). 내가 쓴 일정은 캘린더에 남는다 — 공유 캘린더의 일정은
+     * 함께 쓰던 것이라 나간 사람 것도 남은 멤버에게 보여야 한다.
+     */
+    void transferOwnership(Long calendarId, Long newOwnerMemberId, Long requestUserRowId);
     void changeMemberRole(Long calendarId, Long memberId, CalendarRole permission, Long requestUserRowId);
 }

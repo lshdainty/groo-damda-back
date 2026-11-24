@@ -191,6 +191,155 @@ class UserCalendarServiceImplTest {
                 .isInstanceOf(ForbiddenException.class);
     }
 
+    // ── 공유 캘린더는 지우지 않고 소유자를 넘기고 나간다(2026-11-24 사용자 결정) ──
+
+    private UserCalendarMember memberOf(UserCalendar calendar, long userRowId, long memberRowId, CalendarRole role) {
+        UserCalendarMember m = UserCalendarMember.create(calendar, user(userRowId), role);
+        ReflectionTestUtils.setField(m, "rowId", memberRowId);
+        return m;
+    }
+
+    private UserCalendar sharedCalendar(boolean isDefault) {
+        UserCalendar calendar = calendar(isDefault);
+        ReflectionTestUtils.setField(calendar, "rowId", CAL_ID);
+        given(userCalendarRepository.findById(CAL_ID)).willReturn(Optional.of(calendar));
+        return calendar;
+    }
+
+    @Test
+    @DisplayName("deleteCalendar — 다른 멤버가 남아 있으면 지우지 않는다(일정 · 멤버 그대로)")
+    void deleteRejectsWhenOtherMembersRemain() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember other = memberOf(calendar, 2L, 2L, CalendarRole.READ);
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, other));
+
+        assertThatThrownBy(() -> sut.deleteCalendar(CAL_ID, USER_ID))
+                .isInstanceOf(BusinessRuleViolationException.class)
+                .extracting(e -> ((BusinessRuleViolationException) e).getErrorCode())
+                .isEqualTo(DeskErrorCode.USER_CALENDAR_DELETE_HAS_MEMBERS);
+        assertThat(calendar.getIsDeleted()).isEqualTo(YNType.N);
+        assertThat(other.getIsDeleted()).isEqualTo(YNType.N);
+        verify(calendarEventRepository, never()).findByCalendarId(any());
+    }
+
+    @Test
+    @DisplayName("deleteCalendar — 혼자 남았으면 지운다. 일정은 내 기본 캘린더로 옮긴다")
+    void deleteAllowedForLastPerson() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendar myDefault = calendar(true);
+        io.groo.damda.calendar.domain.CalendarEvent event = mock(io.groo.damda.calendar.domain.CalendarEvent.class);
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner));
+        given(userCalendarRepository.findDefaultByUser(USER_ID)).willReturn(Optional.of(myDefault));
+        given(calendarEventRepository.findByCalendarId(CAL_ID)).willReturn(java.util.List.of(event));
+
+        sut.deleteCalendar(CAL_ID, USER_ID);
+
+        verify(event).setCalendar(myDefault);
+        assertThat(calendar.getIsDeleted()).isEqualTo(YNType.Y);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 편집 가능한 멤버에게 바로 넘어가고 나는 빠진다. 캘린더 주인 칸도 같이 바뀐다")
+    void transferToEditorAndLeave() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember editor = memberOf(calendar, 2L, 2L, CalendarRole.EDIT);
+        UserCalendarMember reader = memberOf(calendar, 3L, 3L, CalendarRole.READ);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, editor, reader));
+
+        realValidator().transferOwnership(CAL_ID, 2L, USER_ID);
+
+        assertThat(editor.getPermission()).isEqualTo(CalendarRole.OWNER);
+        assertThat(calendar.getUser().getRowId()).isEqualTo(2L);
+        assertThat(owner.getIsDeleted()).isEqualTo(YNType.Y);
+        assertThat(reader.getPermission()).isEqualTo(CalendarRole.READ);
+        assertThat(calendar.getIsDeleted()).isEqualTo(YNType.N);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 편집 가능한 멤버가 있으면 읽기 전용 멤버에게는 못 넘긴다")
+    void transferRejectsReaderWhenEditorExists() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember editor = memberOf(calendar, 2L, 2L, CalendarRole.EDIT);
+        UserCalendarMember reader = memberOf(calendar, 3L, 3L, CalendarRole.READ);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, editor, reader));
+
+        assertThatThrownBy(() -> realValidator().transferOwnership(CAL_ID, 3L, USER_ID))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting(e -> ((InvalidValueException) e).getErrorCode())
+                .isEqualTo(DeskErrorCode.USER_CALENDAR_TRANSFER_TARGET_INVALID);
+        assertThat(owner.getPermission()).isEqualTo(CalendarRole.OWNER);
+        assertThat(owner.getIsDeleted()).isEqualTo(YNType.N);
+        assertThat(calendar.getUser().getRowId()).isEqualTo(USER_ID);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 읽기 전용 멤버밖에 없으면 그 멤버에게 넘긴다(권한도 소유자로 오른다)")
+    void transferToReaderWhenNoEditor() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember reader = memberOf(calendar, 3L, 3L, CalendarRole.READ);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, reader));
+
+        realValidator().transferOwnership(CAL_ID, 3L, USER_ID);
+
+        assertThat(reader.getPermission()).isEqualTo(CalendarRole.OWNER);
+        assertThat(calendar.getUser().getRowId()).isEqualTo(3L);
+        assertThat(owner.getIsDeleted()).isEqualTo(YNType.Y);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 소유자가 아니면 못 넘긴다")
+    void transferRejectsNonOwner() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember editor = memberOf(calendar, 2L, 2L, CalendarRole.EDIT);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, 2L)).willReturn(Optional.of(editor));
+
+        assertThatThrownBy(() -> realValidator().transferOwnership(CAL_ID, 2L, 2L))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 이 캘린더의 살아 있는 멤버가 아니면 못 넘긴다(나 자신 · 남의 캘린더 memberId)")
+    void transferRejectsUnknownMember() {
+        UserCalendar calendar = sharedCalendar(false);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember editor = memberOf(calendar, 2L, 2L, CalendarRole.EDIT);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, editor));
+        UserCalendarServiceImpl real = realValidator();
+
+        assertThatThrownBy(() -> real.transferOwnership(CAL_ID, 1L, USER_ID))
+                .isInstanceOf(EntityNotFoundException.class);
+        assertThatThrownBy(() -> real.transferOwnership(CAL_ID, 999L, USER_ID))
+                .isInstanceOf(EntityNotFoundException.class);
+        assertThat(owner.getIsDeleted()).isEqualTo(YNType.N);
+    }
+
+    @Test
+    @DisplayName("transferOwnership — 내 기본 캘린더를 넘기면 받는 사람 쪽 기본 표시는 걷고, 나에게 새 기본 캘린더를 만든다")
+    void transferDefaultCalendar() {
+        UserCalendar calendar = sharedCalendar(true);
+        UserCalendarMember owner = memberOf(calendar, USER_ID, 1L, CalendarRole.OWNER);
+        UserCalendarMember editor = memberOf(calendar, 2L, 2L, CalendarRole.EDIT);
+        given(memberRepository.findByCalendarAndUser(CAL_ID, USER_ID)).willReturn(Optional.of(owner));
+        given(memberRepository.findAllByCalendar(CAL_ID)).willReturn(java.util.List.of(owner, editor));
+        given(userCalendarRepository.findDefaultByUser(USER_ID)).willReturn(Optional.empty());
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(user(USER_ID)));
+
+        realValidator().transferOwnership(CAL_ID, 2L, USER_ID);
+
+        assertThat(calendar.getIsDefault()).isEqualTo(YNType.N);
+        verify(userCalendarRepository).save(org.mockito.ArgumentMatchers.argThat(
+                c -> c.getIsDefault() == YNType.Y && c.getUser().getRowId().equals(USER_ID)));
+    }
+
     @Test
     @DisplayName("removeMember — 소유자(OWNER)는 제거 불가")
     void removeMemberRejectsOwner() {

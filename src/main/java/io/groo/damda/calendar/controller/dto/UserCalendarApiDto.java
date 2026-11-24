@@ -55,6 +55,12 @@ public class UserCalendarApiDto {
         CalendarRole permission
     ) {}
 
+    /** 소유자 넘기기 — 넘겨받을 멤버(멤버 행 id). */
+    public record TransferOwnershipRequest(
+        @NotNull(message = "넘겨받을 멤버를 골라주세요")
+        Long memberId
+    ) {}
+
     @Schema(name = "UserCalendarResponse")
     public record Response(
         Long rowId,

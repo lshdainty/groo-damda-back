@@ -122,6 +122,25 @@ public class UserCalendarApiController {
         return ApiResponse.success();
     }
 
+    /** 멤버가 스스로 나간다 — 소유자는 이 길로 못 나간다(소유자를 넘기고 나간다). */
+    @PostMapping("/calendar/calendars/{id}/leave")
+    public ApiResponse<Void> leaveCalendar(
+            @LoginUser UserPrincipal loginUser,
+            @PathVariable Long id) {
+        userCalendarService.leaveCalendar(id, loginUser.getRowId());
+        return ApiResponse.success();
+    }
+
+    /** 소유자를 넘기고 나는 나간다 — 넘기면 바로 넘어간다. */
+    @PostMapping("/calendar/calendars/{id}/transfer-ownership")
+    public ApiResponse<Void> transferOwnership(
+            @LoginUser UserPrincipal loginUser,
+            @PathVariable Long id,
+            @Valid @RequestBody UserCalendarApiDto.TransferOwnershipRequest request) {
+        userCalendarService.transferOwnership(id, request.memberId(), loginUser.getRowId());
+        return ApiResponse.success();
+    }
+
     @PatchMapping("/calendar/calendars/{id}/member/{memberId}/role")
     public ApiResponse<Void> changeMemberRole(
             @LoginUser UserPrincipal loginUser,

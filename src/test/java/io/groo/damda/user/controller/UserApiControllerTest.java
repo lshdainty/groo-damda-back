@@ -254,7 +254,7 @@ class UserApiControllerTest {
         // 서버가 실제로 넣는 문자열이다(`WithdrawalServiceImpl.check`). 다른 값을 쓰면
         // 웹·앱이 맞대는 상수와 어긋나도 이 테스트는 초록불이 난다.
         given(withdrawalService.check(1L)).willReturn(new CheckResult(
-                List.of("SUBSCRIPTION_ACTIVE"), LocalDateTime.of(2026, 10, 1, 0, 0), 2, 3, 1, 4));
+                List.of("SUBSCRIPTION_ACTIVE"), LocalDateTime.of(2026, 10, 1, 0, 0), 2, 0, 3, 1, 4));
 
         mockMvc.perform(get("/api/v1/users/me/withdrawal-check"))
                 .andExpect(status().isOk())
