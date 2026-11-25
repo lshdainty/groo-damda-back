@@ -1,5 +1,5 @@
 # 베이스는 버전을 고정한다 — 움직이는 태그는 빌드 시점 따라 내용물이 바뀐다. 업데이트는 태그를 올려서.
-FROM eclipse-temurin:25.0.5_8-jdk-alpine AS builder
+FROM eclipse-temurin:25.0.5.1_2-jdk-alpine AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN --mount=type=secret,id=github_token \
     chmod +x gradlew \
     && GITHUB_TOKEN="$(cat /run/secrets/github_token)" ./gradlew clean build -x test
 
-FROM eclipse-temurin:25.0.5_8-jre-alpine AS runtime
+FROM eclipse-temurin:25.0.5.1_2-jre-alpine AS runtime
 
 WORKDIR /app
 
