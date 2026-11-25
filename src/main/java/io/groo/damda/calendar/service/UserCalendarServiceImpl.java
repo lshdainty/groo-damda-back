@@ -118,8 +118,13 @@ public class UserCalendarServiceImpl implements UserCalendarService {
         if (calendar.getIsDefault() == YNType.Y) {
             throw new InvalidValueException(DeskErrorCode.USER_CALENDAR_DEFAULT_DELETE);
         }
+        // 공유 캘린더는 지우지 않는다 — 다른 멤버가 남아 있으면 소유자를 넘기고 나간다(transferOwnership).
+        // 지우면 멤버가 함께 쓰던 일정이 소유자 기본 캘린더로 빨려 들어가 멤버 화면에서 사라진다.
+        if (hasOtherMembers(calendarId)) {
+            throw new BusinessRuleViolationException(DeskErrorCode.USER_CALENDAR_DELETE_HAS_MEMBERS);
+        }
 
-        // 삭제할 캘린더의 이벤트를 소유자 기본 캘린더로 이동
+        // 혼자 남은 캘린더다 — 일정을 소유자 기본 캘린더로 옮긴다
         UserCalendar defaultCalendar = userCalendarRepository.findDefaultByUser(calendar.getUser().getRowId())
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_NOT_FOUND));
 
@@ -263,6 +268,40 @@ public class UserCalendarServiceImpl implements UserCalendarService {
 
     @Override
     @Transactional
+    public void transferOwnership(Long calendarId, Long newOwnerMemberId, Long requestUserRowId) {
+        UserCalendarMember me = membershipValidator.validateOwner(calendarId, requestUserRowId);
+        UserCalendar calendar = findCalendarOrThrow(calendarId);
+
+        List<UserCalendarMember> others = memberRepository.findAllByCalendar(calendarId).stream()
+            .filter(m -> m.getPermission() != CalendarRole.OWNER)
+            .toList();
+        // 조회를 이 캘린더의 살아 있는 멤버 안에서 하므로 남의 캘린더 memberId 로는 닿지 않는다(IDOR 차단).
+        UserCalendarMember target = others.stream()
+            .filter(m -> m.getRowId().equals(newOwnerMemberId))
+            .findFirst()
+            .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_MEMBER_NOT_FOUND));
+
+        boolean anyEditor = others.stream().anyMatch(m -> m.getPermission() == CalendarRole.EDIT);
+        if (target.getPermission() != CalendarRole.EDIT && anyEditor) {
+            throw new InvalidValueException(DeskErrorCode.USER_CALENDAR_TRANSFER_TARGET_INVALID);
+        }
+
+        boolean wasDefault = calendar.getIsDefault() == YNType.Y;
+        target.changePermission(CalendarRole.OWNER);
+        calendar.transferOwnership(target.getUser());
+        me.removeMember();
+
+        // 내 기본 캘린더를 넘겼다면 나에게 기본 캘린더가 없다 — 일정 저장 때 서버가 기본 캘린더를
+        // 대입하는 길이 비지 않게 바로 새로 만든다.
+        if (wasDefault) {
+            getOrCreateDefault(requestUserRowId);
+        }
+        log.info("캘린더 소유자 넘기기 완료: calendarId={}, fromUserRowId={}, toMemberId={}",
+            calendarId, requestUserRowId, newOwnerMemberId);
+    }
+
+    @Override
+    @Transactional
     public void changeMemberRole(Long calendarId, Long memberId, CalendarRole permission, Long requestUserRowId) {
         membershipValidator.validateOwner(calendarId, requestUserRowId);
 
@@ -299,6 +338,12 @@ public class UserCalendarServiceImpl implements UserCalendarService {
     private UserCalendar findCalendarOrThrow(Long calendarId) {
         return userCalendarRepository.findById(calendarId)
             .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_NOT_FOUND));
+    }
+
+    /** 소유자 말고 남은 멤버가 있나 — 공유 중인 캘린더인지. */
+    private boolean hasOtherMembers(Long calendarId) {
+        return memberRepository.findAllByCalendar(calendarId).stream()
+            .anyMatch(m -> m.getPermission() != CalendarRole.OWNER);
     }
 
     private void validateOwnership(UserCalendar calendar, Long userRowId) {

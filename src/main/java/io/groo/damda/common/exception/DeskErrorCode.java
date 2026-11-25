@@ -52,6 +52,9 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     USER_PASSWORD_VERIFY_FAILED("USER_004", "error.user.password.verify.failed", HttpStatus.BAD_REQUEST),
     // desk 이용 해지 — 설계서 A 흐름.
     WITHDRAW_BLOCKED_SUBSCRIPTION("USER_020", "error.user.withdraw.blocked.subscription", HttpStatus.CONFLICT),
+    // 다른 멤버가 남은 캘린더의 소유자는 해지 전에 소유자를 넘겨야 한다 — 해지가 캘린더를 지우면
+    // 멤버가 함께 쓰던 일정이 통째로 사라진다(2026-11-24 사용자 결정).
+    WITHDRAW_BLOCKED_SHARED_CALENDAR("USER_022", "error.user.withdraw.blocked.shared.calendar", HttpStatus.CONFLICT),
     USER_WITHDRAWN("USER_021", "error.user.withdrawn", HttpStatus.FORBIDDEN),
     REAUTH_REQUIRED("AUTH_020", "error.auth.reauth.required", HttpStatus.UNAUTHORIZED),
     REAUTH_FAILED("AUTH_021", "error.auth.reauth.failed", HttpStatus.BAD_REQUEST),
@@ -88,6 +91,11 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     USER_CALENDAR_DEFAULT_HIDE("CAL_016", "error.calendar.default.hide", HttpStatus.BAD_REQUEST),
     // 초대 코드 참여의 틀린 시도 한도(사용자·IP 별 10분 창, 보안 점검 DAM-4).
     USER_CALENDAR_JOIN_RATE_LIMITED("CAL_017", "error.user.calendar.join.rate.limited", HttpStatus.TOO_MANY_REQUESTS),
+    // 공유 캘린더는 지우지 못한다 — 다른 멤버가 남아 있으면 소유자를 넘기고 나간다. 마지막 한 사람만
+    // 지울 수 있다(2026-11-24 사용자 결정). 018 은 다른 브랜치(공유 일정 이동 금지)가 쓰고 있어 019 부터다.
+    USER_CALENDAR_DELETE_HAS_MEMBERS("CAL_019", "error.user.calendar.delete.has.members", HttpStatus.CONFLICT),
+    // 넘겨받을 수 없는 멤버 — 나 자신 · 이미 소유자 · 편집 가능한 멤버가 있는데 읽기 전용 멤버를 고른 경우.
+    USER_CALENDAR_TRANSFER_TARGET_INVALID("CAL_020", "error.user.calendar.transfer.target.invalid", HttpStatus.BAD_REQUEST),
     CALENDAR_ACCESS_DENIED("CAL_007", "error.calendar.access.denied", HttpStatus.FORBIDDEN),
     CALENDAR_EVENT_ACCESS_DENIED("CAL_008", "error.calendar.event.access.denied", HttpStatus.FORBIDDEN),
     EVENT_LABEL_ACCESS_DENIED("CAL_009", "error.event.label.access.denied", HttpStatus.FORBIDDEN),

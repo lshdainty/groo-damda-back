@@ -75,6 +75,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
 
         List<UserCalendarServiceDto.CalendarInfo> calendars = userCalendarService.getCalendars(userRowId);
         long ownedShared = calendars.stream().filter(c -> isOwnedShareable(c)).count();
+        long toTransfer = calendars.stream().filter(WithdrawalServiceImpl::isOwnedWithMembers).count();
         long memberships = calendars.stream()
                 .filter(c -> c.myRole() != CalendarRole.OWNER)
                 .count();
@@ -85,13 +86,14 @@ public class WithdrawalServiceImpl implements WithdrawalService {
                 .count();
 
         return WithdrawalServiceDto.CheckResult.builder()
-                .blocked(entitled.isEmpty() ? List.of() : List.of("SUBSCRIPTION_ACTIVE"))
+                .blocked(blockers(!entitled.isEmpty(), toTransfer > 0))
                 .subscriptionPeriodEnd(entitled.stream()
                         .map(UserSubscription::getCurrentPeriodEnd)
                         .filter(java.util.Objects::nonNull)
                         .max(Comparator.naturalOrder())
                         .orElse(null))
                 .sharedCalendarsOwned((int) ownedShared)
+                .sharedCalendarsToTransfer((int) toTransfer)
                 .calendarMemberships((int) memberships)
                 .dutchPaysOwned(ownedDutchPays)
                 .dutchPayParticipations(participations)
@@ -114,6 +116,11 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         if (!entitledSubscriptions(userRowId).isEmpty()) {
             throw new InvalidValueException(DeskErrorCode.WITHDRAW_BLOCKED_SUBSCRIPTION);
         }
+        // 다른 멤버가 남은 캘린더의 소유자는 먼저 소유자를 넘긴다 — 해지가 지우면 멤버가 함께 쓰던 일정이
+        // 사라진다. 점검과 해지 사이에 누가 들어올 수 있으니 여기서 다시 본다.
+        if (userCalendarService.getCalendars(userRowId).stream().anyMatch(WithdrawalServiceImpl::isOwnedWithMembers)) {
+            throw new InvalidValueException(DeskErrorCode.WITHDRAW_BLOCKED_SHARED_CALENDAR);
+        }
 
         disconnectSecurities(userRowId);
         clearCalendars(userRowId);
@@ -130,6 +137,18 @@ public class WithdrawalServiceImpl implements WithdrawalService {
     /** 활성 구독 — 해지했어도 기간이 남아 있으면 아직 권한이 산다(구독 규칙 그대로). */
     private List<UserSubscription> entitledSubscriptions(Long userRowId) {
         return subscriptionRepository.findEntitled(userRowId, YNType.N, LocalDateTime.now());
+    }
+
+    private static List<String> blockers(boolean subscription, boolean sharedCalendar) {
+        List<String> reasons = new java.util.ArrayList<>();
+        if (subscription) reasons.add("SUBSCRIPTION_ACTIVE");
+        if (sharedCalendar) reasons.add("SHARED_CALENDAR_OWNED");
+        return List.copyOf(reasons);
+    }
+
+    /** 내가 소유자이고 다른 멤버가 남아 있는 캘린더 — 기본 캘린더도 포함한다(기본 캘린더도 공유할 수 있다). */
+    private static boolean isOwnedWithMembers(UserCalendarServiceDto.CalendarInfo c) {
+        return c.myRole() == CalendarRole.OWNER && c.memberCount() > 1;
     }
 
     /** 내가 OWNER 이고 기본 캘린더가 아닌 것 — 기본 캘린더는 삭제 자체가 금지다. */

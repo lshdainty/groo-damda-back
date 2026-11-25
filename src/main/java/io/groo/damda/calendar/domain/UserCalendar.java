@@ -109,6 +109,18 @@ public class UserCalendar extends AuditingFieldsWithIp {
         this.inviteCode = null;
     }
 
+    /**
+     * 소유자를 바꾼다 — 소유자 넘기기에서만 부른다. 멤버 행의 OWNER 와 같은 트랜잭션에서 함께 바꿔야 한다
+     * (소유자가 두 군데에 적혀 있다: 이 칸과 멤버 행).
+     *
+     * <p>기본 캘린더였다면 기본 표시를 걷는다 — 기본 캘린더는 "그 사람의" 기본이라 받는 사람에게는
+     * 이미 자기 기본 캘린더가 있다. 그대로 두면 한 사람에게 기본 캘린더가 둘이 된다.
+     */
+    public void transferOwnership(User newOwner) {
+        this.user = newOwner;
+        this.isDefault = YNType.N;
+    }
+
     public void deleteCalendar() {
         this.isDeleted = YNType.Y;
     }
