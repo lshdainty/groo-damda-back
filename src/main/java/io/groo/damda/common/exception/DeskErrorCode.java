@@ -105,6 +105,7 @@ public enum DeskErrorCode implements ErrorCodeProvider {
     USER_CALENDAR_OWNER_REMOVE("CAL_013", "error.user.calendar.owner.remove", HttpStatus.BAD_REQUEST),
     EVENT_LABEL_DUPLICATE_NAME("CAL_014", "error.duplicate.event.label", HttpStatus.CONFLICT),
     CALENDAR_EVENT_CALENDAR_REQUIRED("CAL_015", "error.calendar.event.calendar.required", HttpStatus.BAD_REQUEST),
+    CALENDAR_EVENT_SHARED_MOVE_DENIED("CAL_018", "error.calendar.event.shared.move.denied", HttpStatus.BAD_REQUEST),
 
     // Memo
     MEMO_NOT_FOUND("MEMO_001", "error.notfound.memo", HttpStatus.NOT_FOUND),

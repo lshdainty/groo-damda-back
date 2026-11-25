@@ -111,7 +111,9 @@ class EventReminderSyncTest {
     private void stubUpdatePath(EventReminder... existing) {
         CalendarEvent event = event();
         given(calendarEventRepository.findById(EVENT_ID)).willReturn(Optional.of(event));
-        given(calendarMembershipValidator.canEditOrDelete(any(), any(), anyLong())).willReturn(true);
+        io.groo.damda.calendar.domain.UserCalendarMember member = mock(io.groo.damda.calendar.domain.UserCalendarMember.class);
+        given(member.getPermission()).willReturn(io.groo.damda.calendar.type.CalendarRole.EDIT);
+        given(calendarMembershipValidator.validateMembership(any(), anyLong())).willReturn(member);
         given(eventReminderRepository.findByEventId(EVENT_ID)).willReturn(new ArrayList<>(List.of(existing)));
     }
 

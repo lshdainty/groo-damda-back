@@ -204,7 +204,7 @@ class CalendarEventServiceImplTest {
         given(calendarEventRepository.findById(5L)).willReturn(Optional.of(event));
         UserCalendarMember member = mock(UserCalendarMember.class);
         given(calendarMembershipValidator.validateMembership(50L, USER_ID)).willReturn(member);
-        given(calendarMembershipValidator.canEditOrDelete(member, null, USER_ID)).willReturn(true);
+        given(member.getPermission()).willReturn(io.groo.damda.calendar.type.CalendarRole.EDIT);
 
         sut.deleteEvent(5L, USER_ID); // 가드 없으면 event.getUser().getRowId() 에서 NPE
 
@@ -270,7 +270,7 @@ class CalendarEventServiceImplTest {
         given(calendarEventRepository.findById(5L)).willReturn(Optional.of(event));
         UserCalendarMember member = mock(UserCalendarMember.class);
         given(calendarMembershipValidator.validateMembership(50L, USER_ID)).willReturn(member);
-        given(calendarMembershipValidator.canEditOrDelete(member, USER_ID, USER_ID)).willReturn(true);
+        given(member.getPermission()).willReturn(io.groo.damda.calendar.type.CalendarRole.EDIT);
         given(eventReminderRepository.findByEventId(5L)).willReturn(java.util.List.of());
 
         sut.updateEvent(5L, USER_ID, new CalendarEventServiceDto.UpdateCommand(
@@ -300,7 +300,7 @@ class CalendarEventServiceImplTest {
         given(calendarEventRepository.findById(5L)).willReturn(Optional.of(event));
         UserCalendarMember member = mock(UserCalendarMember.class);
         given(calendarMembershipValidator.validateMembership(50L, USER_ID)).willReturn(member);
-        given(calendarMembershipValidator.canEditOrDelete(member, USER_ID, USER_ID)).willReturn(true);
+        given(member.getPermission()).willReturn(io.groo.damda.calendar.type.CalendarRole.EDIT);
         given(eventReminderRepository.findByEventId(5L)).willReturn(java.util.List.of());
         return event;
     }
@@ -399,7 +399,7 @@ class CalendarEventServiceImplTest {
         given(calendarEventRepository.findById(5L)).willReturn(Optional.of(event));
         UserCalendarMember member = mock(UserCalendarMember.class);
         given(calendarMembershipValidator.validateMembership(calendarRowId, USER_ID)).willReturn(member);
-        given(calendarMembershipValidator.canEditOrDelete(member, USER_ID, USER_ID)).willReturn(true);
+        given(member.getPermission()).willReturn(io.groo.damda.calendar.type.CalendarRole.EDIT);
         return event;
     }
 
@@ -518,5 +518,93 @@ class CalendarEventServiceImplTest {
     private UserCalendarServiceDto.CalendarInfo defaultCalendarInfo(long rowId) {
         return new UserCalendarServiceDto.CalendarInfo(rowId, USER_ID, "테스터", "기본", "#fff",
                 0, true, true, null, false, true, null, 1, null, null);
+    }
+
+    // ── 읽기 전용 멤버 · 공유 캘린더 밖으로 옮기기 (2026-11-24 사용자 결정) ──────────────
+
+    /** 캘린더 50 에 든, USER_ID 가 만든 일정 5. 그 캘린더에서 내 권한은 {@code role}. */
+    private CalendarEvent myEventIn(UserCalendar cal, io.groo.damda.calendar.type.CalendarRole role) {
+        CalendarEvent event = CalendarEvent.createEvent(user(USER_ID), "회의", null, null, null,
+                LocalDateTime.of(2026, 6, 1, 10, 0), LocalDateTime.of(2026, 6, 1, 11, 0),
+                null, null, null, null, cal);
+        ReflectionTestUtils.setField(event, "rowId", 5L);
+        given(calendarEventRepository.findById(5L)).willReturn(Optional.of(event));
+        UserCalendarMember member = mock(UserCalendarMember.class);
+        given(member.getPermission()).willReturn(role);
+        given(calendarMembershipValidator.validateMembership(50L, USER_ID)).willReturn(member);
+        return event;
+    }
+
+    private UserCalendar calendar(long rowId) {
+        UserCalendar cal = mock(UserCalendar.class);
+        given(cal.getRowId()).willReturn(rowId);
+        return cal;
+    }
+
+    private CalendarEventServiceDto.UpdateCommand moveTo(Patch<Long> calendarRowId) {
+        return new CalendarEventServiceDto.UpdateCommand(
+                "회의", Patch.absent(), null, Patch.absent(),
+                LocalDateTime.of(2026, 6, 1, 10, 0), LocalDateTime.of(2026, 6, 1, 11, 0),
+                null, Patch.absent(), Patch.absent(), Patch.absent(), null, calendarRowId, null);
+    }
+
+    @Test
+    @DisplayName("updateEvent — 읽기 전용 멤버는 자기가 만든 일정이라도 고칠 수 없다")
+    void readMemberCannotUpdateOwnEvent() {
+        myEventIn(calendar(50L), io.groo.damda.calendar.type.CalendarRole.READ);
+
+        assertThatThrownBy(() -> sut.updateEvent(5L, USER_ID, moveTo(Patch.absent())))
+                .isInstanceOf(ForbiddenException.class);
+    }
+
+    @Test
+    @DisplayName("deleteEvent — 읽기 전용 멤버는 자기가 만든 일정이라도 지울 수 없다")
+    void readMemberCannotDeleteOwnEvent() {
+        CalendarEvent event = myEventIn(calendar(50L), io.groo.damda.calendar.type.CalendarRole.READ);
+
+        assertThatThrownBy(() -> sut.deleteEvent(5L, USER_ID))
+                .isInstanceOf(ForbiddenException.class);
+        org.assertj.core.api.Assertions.assertThat(event.getIsDeleted())
+                .isEqualTo(io.groo.core.type.YNType.N);
+    }
+
+    @Test
+    @DisplayName("updateEvent — 공유 중인 캘린더의 일정은 소유자라도 다른 캘린더로 옮길 수 없다")
+    void sharedEventCannotMoveOut() {
+        UserCalendar cal = calendar(50L);
+        CalendarEvent event = myEventIn(cal, io.groo.damda.calendar.type.CalendarRole.OWNER);
+        given(calendarMembershipValidator.isShared(50L)).willReturn(true);
+
+        assertThatThrownBy(() -> sut.updateEvent(5L, USER_ID, moveTo(Patch.set(60L))))
+                .isInstanceOf(InvalidValueException.class)
+                .extracting("errorCode").isEqualTo(DeskErrorCode.CALENDAR_EVENT_SHARED_MOVE_DENIED);
+        org.assertj.core.api.Assertions.assertThat(event.getCalendar()).isSameAs(cal);
+    }
+
+    @Test
+    @DisplayName("updateEvent — 공유 중이어도 지금 캘린더를 그대로 실으면 통과한다")
+    void sharedEventSameCalendarPasses() {
+        UserCalendar cal = calendar(50L);
+        CalendarEvent event = myEventIn(cal, io.groo.damda.calendar.type.CalendarRole.EDIT);
+        given(eventReminderRepository.findByEventId(5L)).willReturn(java.util.List.of());
+
+        sut.updateEvent(5L, USER_ID, moveTo(Patch.set(50L)));
+
+        org.assertj.core.api.Assertions.assertThat(event.getCalendar()).isSameAs(cal);
+    }
+
+    @Test
+    @DisplayName("updateEvent — 공유 멤버가 없는 개인 캘린더의 일정은 다른 캘린더로 옮길 수 있다")
+    void personalEventCanMove() {
+        CalendarEvent event = myEventIn(calendar(50L), io.groo.damda.calendar.type.CalendarRole.OWNER);
+        given(calendarMembershipValidator.isShared(50L)).willReturn(false);
+        UserCalendar target = mock(UserCalendar.class);
+        given(userCalendarRepository.findById(60L)).willReturn(Optional.of(target));
+        given(eventReminderRepository.findByEventId(5L)).willReturn(java.util.List.of());
+
+        sut.updateEvent(5L, USER_ID, moveTo(Patch.set(60L)));
+
+        verify(calendarMembershipValidator).validateCanWrite(60L, USER_ID);
+        org.assertj.core.api.Assertions.assertThat(event.getCalendar()).isSameAs(target);
     }
 }
