@@ -3,6 +3,7 @@ package io.groo.damda.calendar.service;
 import io.groo.core.exception.EntityNotFoundException;
 import io.groo.core.exception.ForbiddenException;
 import io.groo.damda.calendar.domain.UserCalendarMember;
+import io.groo.damda.calendar.type.CalendarRole;
 import io.groo.damda.calendar.repository.UserCalendarMemberRepository;
 import io.groo.damda.calendar.repository.UserCalendarRepository;
 import io.groo.damda.common.exception.DeskErrorCode;
@@ -29,16 +30,15 @@ public class CalendarMembershipValidator {
     }
 
     /**
-     * 이벤트 수정·삭제 가능 여부: 이벤트 생성자 본인이거나 EDIT 이상.
-     * itemOwnerRowId 는 생성자가 삭제된 stale 데이터에서 null 일 수 있으므로 null-safe 하게 처리한다
-     * (생성자 불명 → 본인 일치로 보지 않고 권한(canWrite)으로만 판정).
+     * 공유 중인 캘린더인가 — 소유자 말고 멤버가 한 명이라도 있으면 공유 중이다.
+     * 공유 중인 캘린더의 일정은 그 캘린더 밖으로 옮길 수 없다({@code CalendarEventServiceImpl.applyCalendar}).
      */
-    public boolean canEditOrDelete(UserCalendarMember member, Long itemOwnerRowId, Long requestUserRowId) {
-        if (itemOwnerRowId != null && itemOwnerRowId.equals(requestUserRowId)) return true;
-        return member.getPermission().canWrite();
+    public boolean isShared(Long calendarRowId) {
+        return memberRepo.findAllByCalendar(calendarRowId).stream()
+            .anyMatch(m -> m.getPermission() != CalendarRole.OWNER);
     }
 
-    /** 쓰기 권한(일정 생성) 검증. 읽기전용(READ) 멤버는 차단. */
+    /** 쓰기 권한(일정 생성·수정·삭제) 검증. 읽기전용(READ) 멤버는 자기가 만든 일정이라도 차단. */
     public UserCalendarMember validateCanWrite(Long calendarRowId, Long userRowId) {
         UserCalendarMember member = validateMembership(calendarRowId, userRowId);
         if (!member.getPermission().canWrite()) {

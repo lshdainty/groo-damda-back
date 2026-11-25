@@ -332,7 +332,7 @@ public class CalendarEventServiceImpl implements CalendarEventService {
      *   <caption>본문 → 결과</caption>
      *   <tr><th>본문</th><th>결과</th></tr>
      *   <tr><td>키가 없다</td><td>지금 캘린더 유지. 지금이 <b>없으면</b> 기본 캘린더를 붙인다</td></tr>
-     *   <tr><td>{@code "calendarRowId": 12}</td><td>12 로 옮긴다(쓰기 권한 확인)</td></tr>
+     *   <tr><td>{@code "calendarRowId": 12}</td><td>12 로 옮긴다(쓰기 권한 확인). 지금 캘린더가 공유 중이면 <b>400</b> — 공유 캘린더 밖으로 못 뺀다. 지금과 같으면 그대로</td></tr>
      *   <tr><td>{@code "calendarRowId": null}</td><td><b>400</b> — 뗄 수 없다</td></tr>
      * </table>
      *
@@ -353,6 +353,16 @@ public class CalendarEventServiceImpl implements CalendarEventService {
         }
         if (calendarRowId.present()) {
             Long targetRowId = calendarRowId.value();
+            UserCalendar current = event.getCalendar();
+            if (current != null && current.getRowId().equals(targetRowId)) {
+                return;
+            }
+            // 공유 중인 캘린더의 일정은 그 캘린더 안에서만 다룬다 — 읽기 · 편집 · 소유 권한은 그 캘린더
+            // 안의 권한이지 일정을 밖(개인 캘린더 등)으로 빼는 권한이 아니다. 빼면 같이 보던 사람들
+            // 화면에서 사라진다. 소유자도 같다. 공유 멤버가 없는 개인 캘린더끼리는 옮길 수 있다.
+            if (current != null && calendarMembershipValidator.isShared(current.getRowId())) {
+                throw new InvalidValueException(DeskErrorCode.CALENDAR_EVENT_SHARED_MOVE_DENIED);
+            }
             UserCalendar calendar = userCalendarRepository.findById(targetRowId)
                 .orElseThrow(() -> new EntityNotFoundException(DeskErrorCode.USER_CALENDAR_NOT_FOUND));
             // 옮기려는 캘린더에 쓰기 권한 필요
@@ -374,8 +384,8 @@ public class CalendarEventServiceImpl implements CalendarEventService {
     }
 
     /**
-     * 이벤트는 항상 캘린더에 소속 — 캘린더 멤버십+권한으로 판정.
-     * 이벤트 생성자 본인이거나 EDIT 이상 권한이면 수정/삭제 가능.
+     * 이벤트는 항상 캘린더에 소속 — 그 캘린더의 쓰기 권한(OWNER · EDIT)으로만 판정한다.
+     * 읽기 전용(READ) 멤버는 자기가 만든 일정이라도 고치거나 지울 수 없다 — 권한은 사람이 아니라 캘린더에 걸린다.
      */
     private void validateEventOwnership(CalendarEvent event, Long userRowId) {
         // 오래된 데이터에서 생성자(user)가 삭제돼 null 일 수 있으므로 null-safe 하게 소유자 id 추출.
@@ -383,7 +393,7 @@ public class CalendarEventServiceImpl implements CalendarEventService {
         if (event.getCalendar() != null) {
             UserCalendarMember member = calendarMembershipValidator.validateMembership(
                 event.getCalendar().getRowId(), userRowId);
-            if (!calendarMembershipValidator.canEditOrDelete(member, ownerRowId, userRowId)) {
+            if (!member.getPermission().canWrite()) {
                 throw new ForbiddenException(DeskErrorCode.CALENDAR_EVENT_ACCESS_DENIED);
             }
             return;
