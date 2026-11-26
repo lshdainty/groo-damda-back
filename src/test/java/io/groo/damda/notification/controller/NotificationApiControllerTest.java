@@ -32,6 +32,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -74,6 +75,17 @@ class NotificationApiControllerTest {
                 .andExpect(request().asyncStarted());
 
         verify(sseEmitterService).subscribe(1L);
+    }
+
+    @Test
+    @DisplayName("GET /notifications/stream — 엣지 nginx 버퍼링을 끄는 머리(X-Accel-Buffering: no)를 붙인다")
+    void subscribe_disablesProxyBuffering() throws Exception {
+        given(sseEmitterService.subscribe(1L)).willReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/v1/notifications/stream")
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string("X-Accel-Buffering", "no"));
     }
 
     @Test
