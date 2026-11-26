@@ -7,6 +7,7 @@ import io.groo.damda.notification.service.SseEmitterService;
 import io.groo.damda.notification.service.dto.NotificationServiceDto;
 import io.groo.core.security.LoginUser;
 import io.groo.damda.security.principal.UserPrincipal;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -26,8 +27,13 @@ public class NotificationApiController {
     private final NotificationService notificationService;
     private final SseEmitterService sseEmitterService;
 
+    private static final String ACCEL_BUFFERING_HEADER = "X-Accel-Buffering";
+
     @GetMapping(value = "/notifications/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter subscribe(@LoginUser UserPrincipal loginUser) {
+    public SseEmitter subscribe(@LoginUser UserPrincipal loginUser, HttpServletResponse response) {
+        // 엣지 nginx 는 기본으로 뒤쪽 응답을 버퍼에 모은다. 스트림의 이벤트는 작아서 버퍼가 차지 않아
+        // 브라우저에 닿지 않는다. 이 머리가 있으면 nginx 가 이 응답만 버퍼링을 끈다(머리는 바깥으로 나가지 않는다).
+        response.setHeader(ACCEL_BUFFERING_HEADER, "no");
         return sseEmitterService.subscribe(loginUser.getRowId());
     }
 
